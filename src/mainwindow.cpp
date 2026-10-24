@@ -26,6 +26,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QQuickWidget>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -65,6 +66,13 @@ QString triggerDescription(const QJsonObject &trigger) {
 }
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
+    // Since Qt 6.4, adding the first texture-backed widget to a visible
+    // window can recreate its native surface and lose its WM placement.
+    // Reserve the same rendering surface before our first show. This stays
+    // hidden and loads no QML or WebEngine page; camera sessions remain lazy.
+    auto *cameraSurface = new QQuickWidget(this);
+    cameraSurface->setObjectName(QStringLiteral("cameraRenderSurface"));
+    cameraSurface->hide();
     setWindowTitle("MatterDesk · 家庭"); resize(1340, 960); setMinimumSize(940, 680);
     m_home = new HomeStore(&m_client, this);
     m_metadata = m_client.cameraMetadata();
