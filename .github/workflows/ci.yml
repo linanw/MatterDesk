@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build \
             qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
-            libudev-dev libbluetooth-dev fonts-noto-cjk apparmor
+            libudev-dev libbluetooth-dev fonts-noto-cjk fonts-noto-core fonts-dejavu-core apparmor
       - name: Install pinned controller dependencies
         run: ./scripts/setup-controller.sh
       - name: Configure both applications

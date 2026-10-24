@@ -46,6 +46,12 @@ RUNTIME_NOTICES = {
     "type2-runtime-20251108.tar.gz": ("https://github.com/AppImage/type2-runtime/archive/refs/tags/20251108.tar.gz", "4c4f6df4647c9f01f871d7edd3716d8aeeffda9d22ffbebe3fccd95a6ab52c95"),
     "libfuse-fuse-3.15.0.tar.gz": ("https://github.com/libfuse/libfuse/archive/refs/tags/fuse-3.15.0.tar.gz", "1e79f1dd60eaf79645c21411c4a7028c97b5e745ea677ac5bda747c90497a785"),
 }
+BUNDLED_FONTS = {
+    "Noto Sans CJK SC": ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "fonts-noto-cjk"),
+    "DejaVu Sans": ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "fonts-dejavu-core"),
+    "Noto Sans Symbols": ("/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf", "fonts-noto-core"),
+    "Noto Sans Symbols2": ("/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf", "fonts-noto-core"),
+}
 
 
 def run(command, **kwargs):
@@ -137,7 +143,7 @@ def collect_licenses(appdir: Path, node_license: Path, qt_plugins: Path, qt_proc
         if not ownership:
             raise ValueError(f"Cannot find distribution copyright: {binary.name}")
         system_packages.update(ownership.split(", "))
-    system_packages.add("fonts-noto-cjk")
+    system_packages.update(package for _, package in BUNDLED_FONTS.values())
     for package in sorted(system_packages):
         short = package.split(":", 1)[0]
         copyright_file = Path("/usr/share/doc") / short / "copyright"
@@ -210,6 +216,7 @@ def smoke(image: Path, build_dir: Path, work: Path, source: Path, product: str, 
                XDG_CACHE_HOME=str(isolated / "cache"), XDG_DATA_HOME=str(isolated / "data"),
                XDG_STATE_HOME=str(isolated / "state"), XDG_RUNTIME_DIR=str(isolated / "runtime"),
                MATTERDESK_REQUIRE_CAMERA_CODECS="1",
+               MATTERDESK_REQUIRE_BUNDLED_FONTS="1",
                QT_QPA_PLATFORM="offscreen", QT_SCALE_FACTOR="1", QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu")
     env.pop("QTWEBENGINE_DISABLE_SANDBOX", None)
     version_output = subprocess.check_output([appdir / "AppRun", "--version"], env=env, text=True, timeout=30)
@@ -223,11 +230,14 @@ def smoke(image: Path, build_dir: Path, work: Path, source: Path, product: str, 
         assert port != 5580
         run([appdir / "AppRun", "--server", f"ws://127.0.0.1:{port}/ws", "--quit-after", "1200"], env=env, timeout=30)
     shell = 'export APPDIR="$1"; source "$APPDIR/usr/scripts/appimage-env.sh"; shift; exec "$@"'
-    matched_font = subprocess.check_output(
-        ["bash", "-c", shell, "smoke", appdir, "fc-match", "-f", "%{file}", "Noto Sans CJK SC"],
-        env=env, text=True)
-    if not Path(matched_font).resolve().is_relative_to(appdir / "usr/share/fonts"):
-        raise ValueError("The packaged font configuration did not select the bundled CJK font")
+    for family, (font_source, _) in BUNDLED_FONTS.items():
+        matched_font = subprocess.check_output(
+            ["bash", "-c", shell, "smoke", appdir, "fc-match", "-f", "%{file}", family],
+            env=env, text=True)
+        expected_font = appdir / "usr/share/fonts" / Path(font_source).name
+        if Path(matched_font).resolve() != expected_font.resolve():
+            raise ValueError(f"The packaged font configuration did not select its bundled {family} font")
+    run(["bash", "-c", shell, "smoke", appdir, build_dir / "tst_uifonts"], env=env, timeout=60)
     run(["bash", "-c", shell, "smoke", appdir, appdir / "usr/bin/node",
          appdir / "usr/controller/bootstrap.mjs", "--help"], env=env, timeout=30)
     if (isolated / "data/matterdesk/controller").exists():
@@ -289,8 +299,9 @@ def main():
     node_root = node_tree / "node-v22.22.1-linux-x64"
     package.copy_file(node_root / "bin/node", usr / "bin/node", True)
     node_modules(source / "controller/node_modules", usr / "controller/node_modules")
-    font = Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
-    package.copy_file(font, usr / "share/fonts/NotoSansCJK-Regular.ttc")
+    for font_source, _ in BUNDLED_FONTS.values():
+        font = Path(font_source)
+        package.copy_file(font, usr / "share/fonts" / font.name)
     write(usr / "etc/fonts/fonts.conf", '<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir prefix="relative">../../share/fonts</dir><cachedir prefix="xdg">fontconfig</cachedir></fontconfig>\n')
     write(usr / "scripts/appimage-env.sh", '''export PATH="$APPDIR/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -364,6 +375,8 @@ Explicit `--server ws://host:port/ws` uses an existing controller.
 WebEngine's sandbox stays enabled. Ubuntu AppArmor/user-namespace policy must
 allow the application renderer; the package never disables sandboxing or changes host policy.
 Runtime licenses and actual dependency versions are in `usr/share/doc/licenses/`.
+Bundled CJK, DejaVu and Noto Symbols fonts provide text and UI icon fallback
+without depending on fonts installed on the host.
 Qt is dynamically linked and can be replaced in an extracted AppDir.
 Source: {package.REPOSITORY}/tree/{tag}
 ''')
@@ -377,7 +390,7 @@ Source: {package.REPOSITORY}/tree/{tag}
     digest = hashlib.sha256(image.read_bytes()).hexdigest()
     write(checksum, f"{digest}  {image.name}\n")
     notes = output / f"{info['name']}-{version}-release-notes.md"
-    write(notes, f"{info['description']}\n\nUbuntu 24.04 x86_64 AppImage with Qt/WebEngine, Node.js 22.22.1 and pinned controller dependencies. No first-launch npm installation. Existing Fabric and pairing data are preserved.\n\nSource: {package.REPOSITORY}/tree/{tag}\n\nVerify with `sha256sum -c {checksum.name}`.\n")
+    write(notes, f"{info['description']}\n\nUbuntu 24.04 x86_64 AppImage with Qt/WebEngine, Node.js 22.22.1 and pinned controller dependencies. No first-launch npm installation. Existing Fabric and pairing data are preserved.\n\nFixes missing UI icons by bundling complete CJK, DejaVu and Noto Symbols font fallback, verified inside the extracted AppImage.\n\nSource: {package.REPOSITORY}/tree/{tag}\n\nVerify with `sha256sum -c {checksum.name}`.\n")
     print(json.dumps({"product": args.product, "name": info["name"], "version": version, "tag": tag,
                       "appimage": image.name, "checksum": checksum.name, "sha256": digest,
                       "notes": notes.name, "smoke": "skipped" if args.skip_smoke else "passed"}))

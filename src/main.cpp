@@ -12,7 +12,7 @@
 int main(int argc, char **argv) {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QApplication app(argc, argv);
-    app.setApplicationName("MatterDesk"); app.setOrganizationName("MatterDesk"); app.setApplicationVersion("0.6.0");
+    app.setApplicationName("MatterDesk"); app.setOrganizationName("MatterDesk"); app.setApplicationVersion("0.6.1");
     app.setStyle("Fusion"); app.setFont(QFont("Noto Sans CJK SC", 10));
     const QString icon = QDir(QCoreApplication::applicationDirPath()).filePath("../packaging/matterdesk.svg");
     if (QFileInfo::exists(icon)) app.setWindowIcon(QIcon(icon));
