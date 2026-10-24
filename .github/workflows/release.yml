@@ -61,7 +61,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config binutils \
             qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
-            qt6-svg-dev xvfb fonts-noto-cjk fonts-noto-core fonts-dejavu-core fontconfig apparmor
+            qt6-svg-dev xvfb fonts-noto-cjk fonts-noto-core fonts-dejavu-core fontconfig apparmor \
+            fcitx5-frontend-qt6 fcitx5 fcitx5-pinyin dbus dbus-x11 xauth libxtst6
       - name: Install pinned controller dependencies
         run: npm ci --prefix controller --no-audit --no-fund
       - name: Configure Release build
@@ -78,6 +79,8 @@ jobs:
           QT_SCALE_FACTOR: '1'
           QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
         run: xvfb-run -a ctest --test-dir build --output-on-failure --parallel 2
+      - name: Test Chinese input with an isolated Fcitx Pinyin session
+        run: python3 tests/run-inputmethod-smoke.py --test-executable build/tst_inputmethod
       - name: Build and smoke-test selected AppImage
         env:
           PRODUCT: ${{ steps.application.outputs.product }}

@@ -36,6 +36,8 @@ AppImage 包含对应应用、Qt / WebEngine、Node.js 22 和锁定的控制器�
 
 当前 CI 构建基线为 **Ubuntu 24.04 x86_64**，仍依赖宿主 Linux 内核、显示 / 图形驱动、音频服务与兼容的系统 ABI；不承诺 Ubuntu 22.04 或任意旧发行版兼容。源码构建和依赖系统 Qt 的轻量 tar 包仍是可选方式。
 
+中文输入修复版（MatterDesk 0.6.2 / MatterCamViewer 2.4.2 起）同时捆绑匹配 Qt 的 Fcitx 5 / IBus 输入法插件。桌面中已配置的输入法服务和中文引擎继续提供候选与切换功能；启动器继承原有会话环境。详见 [中文输入与输入法验证](docs/INPUT_METHODS.md)。
+
 若启动提示缺少 `libfuse.so.2`，Ubuntu 24.04 对应包为 `libfuse2t64`。无法使用 FUSE 时可改为解包运行：
 
 ```bash
