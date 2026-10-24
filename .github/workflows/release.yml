@@ -1,0 +1,107 @@
+name: Release Linux applications
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Application to build and smoke-test (without publishing)
+        required: true
+        type: choice
+        default: mattercamviewer
+        options:
+          - matterdesk
+          - mattercamviewer
+  push:
+    tags:
+      - 'matterdesk-v*'
+      - 'mattercamviewer-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Select application
+        id: application
+        env:
+          MANUAL_PRODUCT: ${{ inputs.product }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            case "$MANUAL_PRODUCT" in
+              matterdesk|mattercamviewer) printf 'product=%s\n' "$MANUAL_PRODUCT" >> "$GITHUB_OUTPUT" ;;
+              *) echo 'Unsupported application choice' >&2; exit 1 ;;
+            esac
+            exit 0
+          fi
+          case "$GITHUB_REF_NAME" in
+            matterdesk-v*) echo 'product=matterdesk' >> "$GITHUB_OUTPUT" ;;
+            mattercamviewer-v*) echo 'product=mattercamviewer' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'Unsupported application tag' >&2; exit 1 ;;
+          esac
+      - name: Install Qt and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config binutils \
+            qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
+            qt6-svg-dev xvfb fonts-noto-cjk fontconfig apparmor
+      - name: Install pinned controller dependencies
+        run: npm ci --prefix controller --no-audit --no-fund
+      - name: Configure Release build
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=."
+      - name: Build both applications and tests
+        run: cmake --build build --parallel 2
+      - name: Permit WebEngine sandbox user namespaces when runner policy requires it
+        run: ./scripts/prepare-ci-webengine-sandbox.sh build
+      - name: Run complete offline regression suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_SCALE_FACTOR: '1'
+          QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --parallel 2
+      - name: Build and smoke-test selected AppImage
+        env:
+          PRODUCT: ${{ steps.application.outputs.product }}
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          python3 scripts/build-appimage.py --product "$PRODUCT" --build-dir build \
+            --output-dir dist > release-info.json
+          cat release-info.json
+      - name: Publish versioned application release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRODUCT: ${{ steps.application.outputs.product }}
+        shell: bash
+        run: |
+          image="$(python3 -c 'import json; print(json.load(open("release-info.json"))["appimage"])')"
+          checksum="$(python3 -c 'import json; print(json.load(open("release-info.json"))["checksum"])')"
+          notes="$(python3 -c 'import json; print(json.load(open("release-info.json"))["notes"])')"
+          title="$(python3 -c 'import json; x=json.load(open("release-info.json")); print(x["name"]+" "+x["version"])')"
+          latest=false
+          if [[ "$PRODUCT" == matterdesk ]]; then latest=true; fi
+          gh release create "$GITHUB_REF_NAME" "dist/$image" "dist/$checksum" \
+            --verify-tag --title "$title" --notes-file "dist/$notes" --latest="$latest"
+      - name: Remove temporary runner-only sandbox profiles
+        if: always()
+        run: ./scripts/prepare-ci-webengine-sandbox.sh --cleanup

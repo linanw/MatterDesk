@@ -109,6 +109,8 @@ MATTER_INTERFACE=YOUR_INTERFACE ./scripts/start-controller.sh
 ./scripts/run-mattercamviewer-homebridge-dev.sh
 ```
 
+AppImage 使用同一显式选项，例如 `ENABLE_TEST_NET_DCL=true ./MatterCamViewer-2.4.0-x86_64.AppImage`。
+
 这为新启动的控制器设置 `ENABLE_TEST_NET_DCL=true`，不改变已运行的服务。已有服务需要由其管理者在保留原 Fabric 目录的前提下以相应配置重启。正常启动不会默认启用开发证书。
 
 ## 摄像头与 MatterCamViewer
@@ -136,6 +138,8 @@ MatterDesk 在右侧主面板等比适配完整视频，保留导航。MatterCam
 Apple 家庭的名称 / 房间同步、HomeKit Secure Video、历史录像、云端推送和家庭中枢功能不在当前实现范围。
 
 ## 测试、安装与发行
+
+维护者的手动 AppImage 验证、版本标签及自动发布步骤见 [发布指南](docs/RELEASING.md)。
 
 主分支和面向主分支的 PR 运行 CI：Ubuntu 24.04 的系统 Qt、Node.js 22 和锁定控制器依赖，构建两个应用并运行离线 Qt / JavaScript 单元测试和本地 schema 转换测试。它不访问真实家庭设备、账号或生产控制器。CI 先检查用户命名空间，仅在宿主策略需要时为测试程序加载临时 AppArmor 例外，不关闭 WebEngine 沙箱。可在本机运行构建和测试：
 
