@@ -2,6 +2,8 @@
 
 从 MatterDesk 0.6.2 / MatterCamViewer 2.4.2 起，AppImage 显式包含与包内 Qt 匹配的 Fcitx 5、IBus 和 Compose 输入上下文插件及所需动态库。旧稳定版只含 IBus / Compose；桌面选择 `QT_IM_MODULE=fcitx` 时会回退到 Compose，无法正常使用拼音。
 
+本页对应稳定修复版及当前主分支源码。此前发布的 0.7.0-beta.1 / 2.5.0-beta.1 安装包构建早于此修复，beta 通道需使用后续构建获取它。
+
 输入法由两部分组成：AppImage 内的 Qt 客户端插件，以及桌面会话中运行的输入法服务和中文引擎。使用已配置好的系统输入法，在搜索、名称或房间等普通文本框中切换输入即可。配对码等密码框使用受限的输入提示，不用于检查中文输入能力。
 
 启动器继承桌面的 `QT_IM_MODULE`、`XMODIFIERS` 和 `DBUS_SESSION_BUS_ADDRESS`，不强制改成另一种输入法。Fcitx 桌面通常选择 `fcitx`，IBus 桌面通常选择 `ibus`。无需为了这个修复修改系统配置文件或重新配对设备。

@@ -1,6 +1,6 @@
 # 功能范围 / Feature scope
 
-本文区分稳定通道 **MatterDesk 0.6.1 / MatterCamViewer 2.4.1** 与新增涂鸦元数据的 **0.7.0-beta.1 / 2.5.0-beta.1** 测试通道。beta 测试包正在准备，以对应 GitHub 预发布页实际附件为准。安装、配对与启动方式见 [README](../README.md)。两个应用使用同一套 Matter 协议、摄像头播放器和控制器扩展；设备或桥接器没有公布的能力，客户端不会根据名称或外观推断。
+本文区分稳定通道 **MatterDesk 0.6.2 / MatterCamViewer 2.4.2** 与新增涂鸦元数据的 **0.7.0-beta.1 / 2.5.0-beta.1** 测试通道。beta 测试包正在准备，以对应 GitHub 预发布页实际附件为准。安装、配对与启动方式见 [README](../README.md)。两个应用使用同一套 Matter 协议、摄像头播放器和控制器扩展；设备或桥接器没有公布的能力，客户端不会根据名称或外观推断。
 
 MatterDesk provides a full home dashboard; MatterCamViewer focuses on camera viewing. Both use an independent OHF Matter Server. Capability support below describes implemented protocol handling, not universal hardware compatibility or Matter certification.
 
@@ -19,7 +19,7 @@ MatterDesk provides a full home dashboard; MatterCamViewer focuses on camera vie
 | 涂鸦名称 / 房间（beta） | 设置中的独立同步服务、绑定与显示镜像 | 独立「涂」入口；只匹配真实设备，不新增摄像头驱动 |
 | 配对与控制器 | Matter 配对码，本地或显式远程控制器 | 同一本地控制器，也可显式指定远程控制器 |
 
-MatterCamViewer 2.4.1 采用 Mini 2.3 的窗口行为并接入当前元数据功能。窗口默认 800×450；单击切换控件显示，双击先恢复默认尺寸，再进入全屏。F11 直接切换全屏，Esc 退出全屏；普通窗口内 Esc 从直播返回快照。X11 支持拖到屏幕边缘后收起为细边条，悬停展开；Wayland 使用系统拖动并停用屏幕外抽屉。
+MatterCamViewer 2.4.2 采用 Mini 2.3 的窗口行为并接入当前元数据功能。窗口默认 800×450；单击切换控件显示，双击先恢复默认尺寸，再进入全屏。F11 直接切换全屏，Esc 退出全屏；普通窗口内 Esc 从直播返回快照。X11 支持拖到屏幕边缘后收起为细边条，悬停展开；Wayland 使用系统拖动并停用屏幕外抽屉。
 
 ## 家庭与配件组织
 
