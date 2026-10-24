@@ -5,6 +5,8 @@
 #include "camerawindow.h"
 #include "cameraptzcontrols.h"
 #include "snapshotpreview.h"
+#include "tuyametadata.h"
+#include "tuyametadatapanel.h"
 
 #include <QComboBox>
 #include <QApplication>
@@ -15,6 +17,8 @@
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QPainter>
@@ -74,6 +78,8 @@ MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
     setWindowTitle(QStringLiteral("MatterCamViewer"));
     resize(DefaultWindowSize); setMinimumSize(400, 280);
     m_preferredKey = QSettings().value(QStringLiteral("mini/selectedCameraKey")).toString();
+    m_tuyaMetadataManager = new TuyaMetadataManager(&m_client, this);
+    m_tuyaMetadataManager->setObjectName(QStringLiteral("miniTuyaMetadataManager"));
 
     auto *root = new QWidget(this); root->setObjectName(QStringLiteral("miniRoot"));
     root->setStyleSheet(QStringLiteral("QWidget#miniRoot { background:#10221a; }"));
@@ -122,6 +128,12 @@ MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
     m_metadata = new QPushButton(QStringLiteral("米"), m_header); m_metadata->setObjectName(QStringLiteral("miniMijiaMetadata"));
     m_metadata->setFixedSize(34, 34); m_metadata->setAccessibleName(QStringLiteral("米家名称与房间"));
     m_metadata->setToolTip(QStringLiteral("米家名称与房间")); m_metadata->hide(); header->addWidget(m_metadata);
+    m_tuyaMetadata = new QPushButton(QStringLiteral("涂"), m_header);
+    m_tuyaMetadata->setObjectName(QStringLiteral("miniTuyaMetadata"));
+    m_tuyaMetadata->setFixedSize(34, 34);
+    m_tuyaMetadata->setAccessibleName(QStringLiteral("涂鸦名称与房间同步"));
+    m_tuyaMetadata->setToolTip(QStringLiteral("涂鸦名称与房间同步"));
+    m_tuyaMetadata->setCursor(Qt::PointingHandCursor); header->addWidget(m_tuyaMetadata);
     m_add = new QPushButton(QStringLiteral("＋"), m_header); m_add->setObjectName(QStringLiteral("miniAdd")); m_add->setFixedSize(34, 34);
     m_add->setAccessibleName(QStringLiteral("添加 Matter 摄像头")); m_add->setCursor(Qt::PointingHandCursor);
     m_add->setToolTip(QStringLiteral("添加摄像头")); m_add->setEnabled(false); header->addWidget(m_add); headerBox->addLayout(header);
@@ -188,6 +200,7 @@ MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
     m_panelAutoHide->setSingleShot(true); m_panelAutoHide->setInterval(10000); m_panelAutoHide->setTimerType(Qt::PreciseTimer);
     connect(m_panelAutoHide, &QTimer::timeout, this, [this] {
         if (m_destroying || !m_panelsVisible || !isVisible() || isMinimized() || m_drawerHidden) return;
+        if (m_tuyaMetadataDialog && m_tuyaMetadataDialog->isVisible()) return;
         // Keep controls available while a press, drag, menu or permission dialog is in use.
         if (m_pointerPressed || m_dragging || QApplication::mouseButtons() != Qt::NoButton
             || QApplication::activePopupWidget() || QApplication::activeModalWidget()) {
@@ -226,6 +239,9 @@ MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
         if (m_destroying) return;
         updateConnection(); updateSnapshot(); updateSnapshotActivity();
     });
+    connect(&m_client, &MatterClient::serverInfoChanged, this, [this] {
+        if (!m_destroying) updateTuyaProfile();
+    });
     connect(&m_client, &MatterClient::commandFinished, this,
         [this](const QString &id, const QString &, bool success, const QString &detail) {
             if (m_destroying || id != m_pairRequest || m_pairRequest.isEmpty()) return;
@@ -238,6 +254,13 @@ MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
         });
     connect(m_add, &QPushButton::clicked, this, &MiniWindow::showPairing);
     connect(m_metadata, &QPushButton::clicked, this, &MiniWindow::showMetadata);
+    connect(m_tuyaMetadata, &QPushButton::clicked, this, &MiniWindow::showTuyaMetadata);
+    connect(m_tuyaMetadataManager, &TuyaMetadataManager::changed, this, [this] {
+        if (!m_destroying) updateMetadataPresentation();
+    });
+    connect(m_tuyaMetadataManager, &TuyaMetadataManager::statusChanged, this, [this](const QString &status) {
+        if (!m_destroying) m_tuyaMetadata->setToolTip(QStringLiteral("涂鸦名称与房间同步 · ") + status);
+    });
     connect(m_client.cameraMetadata(), &CameraMetadataManager::changed, this, [this](const QString &) {
         if (!m_destroying) updateMetadataPresentation();
     });
@@ -265,6 +288,8 @@ MiniWindow::~MiniWindow() {
     m_ptz->setClosing(); delete m_ptz; m_ptz = nullptr;
     if (m_pairDialog) delete m_pairDialog.data();
     if (m_metadataDialog) delete m_metadataDialog.data();
+    if (m_tuyaMetadataDialog) delete m_tuyaMetadataDialog.data();
+    delete m_tuyaMetadataManager; m_tuyaMetadataManager = nullptr;
     if (m_camera) {
         disconnect(m_camera, nullptr, this, nullptr);
         // Explicit destruction performs synchronous local microphone/peer cleanup
@@ -373,7 +398,8 @@ void MiniWindow::restartPanelAutoHide() {
     if (m_destroying || !m_panelAutoHide) return;
     if (m_panelsVisible && isVisible() && !isMinimized() && !m_drawerHidden
         && !(m_pairDialog && m_pairDialog->isVisible())
-        && !(m_metadataDialog && m_metadataDialog->isVisible())) m_panelAutoHide->start();
+        && !(m_metadataDialog && m_metadataDialog->isVisible())
+        && !(m_tuyaMetadataDialog && m_tuyaMetadataDialog->isVisible())) m_panelAutoHide->start();
     else m_panelAutoHide->stop();
 }
 
@@ -552,6 +578,7 @@ void MiniWindow::watchDrawer() {
     }
     if (!isVisible() || isMinimized() || isFullScreen() || m_pointerPressed || m_dragging
         || (m_pairDialog && m_pairDialog->isVisible()) || (m_metadataDialog && m_metadataDialog->isVisible())
+        || (m_tuyaMetadataDialog && m_tuyaMetadataDialog->isVisible())
         || QApplication::activeModalWidget()) return;
     // A compositor or keyboard move away from the edge cancels docking.
     if (geometry() != m_dockGeometry) { clearDock(false); return; }
@@ -561,7 +588,8 @@ void MiniWindow::watchDrawer() {
 void MiniWindow::collapseDrawer() {
     if (!m_dockScreen || m_dockEdge == DockEdge::None || !isVisible() || isMinimized() || isFullScreen()
         || m_pointerPressed || m_dragging || QApplication::activeModalWidget()
-        || (m_pairDialog && m_pairDialog->isVisible()) || (m_metadataDialog && m_metadataDialog->isVisible())) return;
+        || (m_pairDialog && m_pairDialog->isVisible()) || (m_metadataDialog && m_metadataDialog->isVisible())
+        || (m_tuyaMetadataDialog && m_tuyaMetadataDialog->isVisible())) return;
     const QRect area = m_dockScreen->availableGeometry();
     QPoint hidden = m_dockGeometry.topLeft();
     if (m_dockEdge == DockEdge::Left) hidden.setX(area.left() - width() + DrawerStrip);
@@ -620,6 +648,7 @@ void MiniWindow::selectCamera(const QString &key) {
     const QSignalBlocker block(m_selector);
     m_selector->setCurrentIndex(m_selector->findData(key));
     if (changed && m_metadataDialog) m_metadataDialog->close();
+    if (changed && m_tuyaMetadataDialog) m_tuyaMetadataDialog->close();
     if (changed) m_preview->setImage({});
     const auto device = selectedCamera();
     m_ptz->setDevice(device);
@@ -634,23 +663,66 @@ void MiniWindow::updateMetadataPresentation() {
     const auto device = selectedCamera();
     const auto metadata = m_client.cameraMetadata()->state(device);
     const bool incomplete = cameraMetadataUnavailable(metadata);
-    const auto name = incomplete ? QStringLiteral("摄像头") : metadata.known && !metadata.snapshot.name.isEmpty() ? metadata.snapshot.name : device.name;
+    const auto name = cameraDisplayName(device);
     m_title->setText(device.hasCamera ? name : QStringLiteral("摄像头"));
     m_title->setToolTip(device.hasCamera ? name : QString());
     QStringList location;
     if (metadata.known && !metadata.snapshot.homeName.isEmpty()) location << metadata.snapshot.homeName;
     if (metadata.known && !metadata.snapshot.roomName.isEmpty()) location << metadata.snapshot.roomName;
+    const auto tuyaRoom = !incomplete && location.isEmpty() && m_tuyaMetadataManager
+        ? m_tuyaMetadataManager->roomName(device) : QString();
     m_metadataLocation->setText(incomplete ? QStringLiteral("米家信息暂不可用")
-        : location.isEmpty() ? QString() : QStringLiteral("米家 · ") + location.join(QStringLiteral(" / ")));
-    m_metadataLocation->setVisible(incomplete || !location.isEmpty());
+        : !location.isEmpty() ? QStringLiteral("米家 · ") + location.join(QStringLiteral(" / "))
+        : !tuyaRoom.isEmpty() ? QStringLiteral("涂鸦 · ") + tuyaRoom : QString());
+    m_metadataLocation->setVisible(incomplete || !location.isEmpty() || !tuyaRoom.isEmpty());
     const QSignalBlocker block(m_selector);
     for (const auto &camera : m_cameras) {
-        const auto state = m_client.cameraMetadata()->state(camera);
         const int index = m_selector->findData(camera.key);
-        if (index >= 0) m_selector->setItemText(index, cameraMetadataUnavailable(state)
-            ? QStringLiteral("摄像头") : state.known && !state.snapshot.name.isEmpty() ? state.snapshot.name : camera.name);
+        if (index >= 0) m_selector->setItemText(index, cameraDisplayName(camera));
     }
     layoutOverlays();
+}
+QString MiniWindow::cameraDisplayName(const MatterDevice &device) {
+    const auto mijia = m_client.cameraMetadata()->state(device);
+    if (cameraMetadataUnavailable(mijia)) return QStringLiteral("摄像头");
+    if (mijia.known && !mijia.snapshot.name.isEmpty()) return mijia.snapshot.name;
+    const auto tuya = m_tuyaMetadataManager ? m_tuyaMetadataManager->displayName(device) : QString();
+    return tuya.isEmpty() ? device.name : tuya;
+}
+void MiniWindow::updateTuyaProfile() {
+    if (m_destroying || !m_tuyaMetadataManager) return;
+    QString profile;
+    if (m_client.isConnected() && !m_client.isDemoMode()) {
+        const auto info = m_client.serverInfo(); QStringList identity;
+        for (const auto &key : {"fabric_id", "compressed_fabric_id"}) {
+            if (info.contains(key)) identity << key + QString::fromUtf8(
+                QJsonDocument(QJsonArray{info.value(key)}).toJson(QJsonDocument::Compact));
+        }
+        profile = m_client.serverUrl().adjusted(QUrl::NormalizePathSegments | QUrl::RemoveFragment).toString()
+            + QStringLiteral("|") + identity.join(QStringLiteral("|"));
+    }
+    if (profile == m_tuyaMetadataManager->profile()) return;
+    if (m_tuyaMetadataDialog) m_tuyaMetadataDialog->close();
+    m_tuyaMetadataManager->setProfile(profile);
+    updateMetadataPresentation();
+}
+void MiniWindow::showTuyaMetadata() {
+    if (m_destroying || !m_tuyaMetadataManager) return;
+    if (m_tuyaMetadataDialog) {
+        m_tuyaMetadataDialog->show(); m_tuyaMetadataDialog->raise(); m_tuyaMetadataDialog->activateWindow(); return;
+    }
+    auto *dialog = new QDialog(this); m_tuyaMetadataDialog = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setObjectName(QStringLiteral("miniTuyaMetadataDialog"));
+    dialog->setWindowTitle(QStringLiteral("涂鸦名称与房间同步")); dialog->resize(620, 680);
+    auto *layout = new QVBoxLayout(dialog);
+    const auto device = selectedCamera();
+    if (device.hasCamera) layout->addWidget(new TuyaMetadataPanel(m_tuyaMetadataManager, device, dialog));
+    else layout->addWidget(new TuyaMetadataPanel(m_tuyaMetadataManager, dialog));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog); layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+    connect(dialog, &QDialog::finished, this, [this] { restartPanelAutoHide(); });
+    dialog->show(); restartPanelAutoHide();
 }
 void MiniWindow::showMetadata() {
     const auto device = selectedCamera();
@@ -668,6 +740,7 @@ void MiniWindow::showMetadata() {
 }
 void MiniWindow::updateConnection() {
     if (m_destroying) return;
+    updateTuyaProfile();
     const bool ready = m_client.isConnected() && !m_client.isDemoMode();
     const auto device = selectedCamera();
     m_connection->setText(!ready ? QStringLiteral("正在连接…") : !device.hasCamera ? QStringLiteral("已连接")
@@ -676,6 +749,8 @@ void MiniWindow::updateConnection() {
     m_add->setVisible(!m_camera);
     m_metadata->setVisible(hasCameraMetadata(device));
     m_metadata->setEnabled(ready && device.available && hasCameraMetadata(device));
+    m_tuyaMetadata->setEnabled(true);
+    m_tuyaMetadata->setToolTip(QStringLiteral("涂鸦名称与房间同步 · ") + m_tuyaMetadataManager->statusText());
     m_selector->setVisible(m_cameras.size() > 1 && !m_camera);
     m_selector->setEnabled(!m_camera && !m_openingCamera);
     if (m_camera && (!ready || !device.available)) m_camera->close();

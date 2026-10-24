@@ -7,6 +7,7 @@ class HomeStore;
 class CameraWindow;
 class CameraSnapshots;
 class CameraMetadataManager;
+class TuyaMetadataManager;
 class DeviceCard;
 class QLabel;
 class QLineEdit;
@@ -27,6 +28,7 @@ public:
     ~MainWindow() override;
     MatterClient *client() { return &m_client; }
     HomeStore *home() { return m_home; }
+    TuyaMetadataManager *tuyaMetadata() { return m_tuyaMetadata; }
     void setServerUrl(const QString &url);
     void startDemo();
 protected:
@@ -61,6 +63,7 @@ private:
     HomeStore *m_home = nullptr;
     CameraSnapshots *m_snapshots = nullptr;
     CameraMetadataManager *m_metadata = nullptr;
+    TuyaMetadataManager *m_tuyaMetadata = nullptr;
     QLineEdit *m_url = nullptr, *m_search = nullptr;
     QPushButton *m_connect = nullptr, *m_pair = nullptr, *m_refresh = nullptr, *m_demo = nullptr, *m_pageAction = nullptr;
     QPushButton *m_climateChip = nullptr, *m_securityChip = nullptr, *m_lightChip = nullptr, *m_energyChip = nullptr;

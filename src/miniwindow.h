@@ -9,6 +9,7 @@ class CameraSnapshots;
 class CameraWindow;
 class CameraPtzControls;
 class SnapshotPreview;
+class TuyaMetadataManager;
 class QComboBox;
 class QDialog;
 class QLabel;
@@ -54,7 +55,10 @@ private:
     void updateSnapshotActivity();
     void showPairing();
     void showMetadata();
+    void showTuyaMetadata();
+    void updateTuyaProfile();
     void updateMetadataPresentation();
+    QString cameraDisplayName(const MatterDevice &device);
     void openCamera();
     MatterDevice selectedCamera() const;
 
@@ -65,6 +69,8 @@ private:
     QPointer<CameraWindow> m_camera;
     QPointer<QDialog> m_pairDialog;
     QPointer<QDialog> m_metadataDialog;
+    QPointer<QDialog> m_tuyaMetadataDialog;
+    TuyaMetadataManager *m_tuyaMetadataManager = nullptr;
     QPointer<QLineEdit> m_pairCode;
     QPointer<QPushButton> m_pairSubmit;
     QPointer<QLabel> m_pairStatus;
@@ -73,6 +79,7 @@ private:
     QLabel *m_title = nullptr, *m_connection = nullptr, *m_snapshotTime = nullptr, *m_snapshotStatus = nullptr;
     QPushButton *m_add = nullptr, *m_refresh = nullptr, *m_play = nullptr, *m_fullScreen = nullptr, *m_onTop = nullptr;
     QPushButton *m_metadata = nullptr;
+    QPushButton *m_tuyaMetadata = nullptr;
     QLabel *m_metadataLocation = nullptr;
     QComboBox *m_selector = nullptr;
     QStackedWidget *m_pages = nullptr;

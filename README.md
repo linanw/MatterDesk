@@ -17,6 +17,10 @@ MatterDesk / MatterCamViewer → OHF Matter Server → Matter device or bridge
 
 本项目不连接 Apple ID、Apple 家庭数据库或 iCloud；功能范围见 [功能矩阵](docs/FEATURES.md)。
 
+开发预览：两个应用新增[涂鸦名称与房间同步](docs/TUYA_METADATA_SYNC.md)，使用独立授权服务，保留本机别名、米家资料和 Matter 配对。PaaS 当前只读名称与房间，Custom 可单独开启设备名称写回；完整涂鸦房间双向写入尚不可用，现有正式版下载不包含本预览。
+
+Development preview: both applications can use the [Tuya metadata service](docs/TUYA_METADATA_SYNC.md). Local aliases, Xiaomi metadata and pairings remain independent. Current cloud capabilities differ by provider; full bidirectional room writes are unavailable. Existing release downloads do not include this preview.
+
 ## 下载与运行 AppImage
 
 在 [GitHub Releases](https://github.com/linanw/MatterDesk/releases) 下载对应应用，无需另外安装 Qt、Node.js 或 npm：

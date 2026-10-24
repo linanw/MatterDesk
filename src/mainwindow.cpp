@@ -6,6 +6,8 @@
 #include "camerawindow.h"
 #include "camerasnapshots.h"
 #include "camerametadata.h"
+#include "tuyametadata.h"
+#include "tuyametadatapanel.h"
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCheckBox>
@@ -66,6 +68,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("MatterDesk · 家庭"); resize(1340, 960); setMinimumSize(940, 680);
     m_home = new HomeStore(&m_client, this);
     m_metadata = m_client.cameraMetadata();
+    m_tuyaMetadata = new TuyaMetadataManager(&m_client, this);
     buildUi();
     m_snapshots = new CameraSnapshots(&m_client, this);
     m_snapshotTimer = new QTimer(this); m_snapshotTimer->setSingleShot(true); m_snapshotTimer->setInterval(40);
@@ -83,6 +86,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_layoutTimer, &QTimer::timeout, this, &MainWindow::relayoutCards);
     connect(&m_client, &MatterClient::devicesChanged, this, &MainWindow::syncDevices);
     connect(m_metadata, &CameraMetadataManager::changed, this, [this](const QString &) {
+        if (!m_destroying) syncDevices();
+    });
+    connect(m_tuyaMetadata, &TuyaMetadataManager::changed, this, [this] {
         if (!m_destroying) syncDevices();
     });
     connect(&m_client, &MatterClient::connectionChanged, this, &MainWindow::syncConnection);
@@ -108,6 +114,7 @@ MainWindow::~MainWindow() {
     m_snapshotTimer->stop(); m_snapshots->setActive(false); delete m_snapshots; m_snapshots = nullptr;
     if (m_camera) { disconnect(m_camera, nullptr, this, nullptr); m_camera->close(); delete m_camera.data(); }
     for (auto *panel : findChildren<AccessoryPanel *>()) delete panel;
+    delete m_tuyaMetadata; m_tuyaMetadata = nullptr;
     delete m_home; m_home = nullptr;
 }
 void MainWindow::buildUi() {
@@ -194,6 +201,7 @@ void MainWindow::syncConnection() {
         profile=m_client.serverUrl().adjusted(QUrl::NormalizePathSegments|QUrl::RemoveFragment).toString()+"|"+identity.join("|");
     }
     m_home->setProfile(profile);
+    m_tuyaMetadata->setProfile(demo ? QString() : profile);
     if (demo) seedDemo();
     m_mode->setVisible(demo); m_demo->setText(demo ? "◌   退出演示" : "◌   体验演示"); m_status->setText((ready ? "● " : "○ ")+m_client.statusText());
     m_connect->setText(ready&&!demo ? "断开" : m_client.isConnecting() ? "取消连接" : demo ? "连接真实控制器" : "连接");
@@ -228,7 +236,9 @@ QString MainWindow::displayName(const MatterDevice &device) const {
     if (!local.isEmpty()) return local;
     const auto metadata = m_metadata->state(device);
     if (cameraMetadataUnavailable(metadata)) return QStringLiteral("摄像头");
-    return metadata.known && !metadata.snapshot.name.isEmpty() ? metadata.snapshot.name : device.name;
+    if (metadata.known && !metadata.snapshot.name.isEmpty()) return metadata.snapshot.name;
+    const auto tuya = m_tuyaMetadata->displayName(device);
+    return tuya.isEmpty() ? device.name : tuya;
 }
 QString MainWindow::roomCaption(const MatterDevice &device) const {
     const auto local = m_home->accessory(device.key).value("roomId").toString();
@@ -241,6 +251,8 @@ QString MainWindow::roomCaption(const MatterDevice &device) const {
         if (!metadata.snapshot.roomName.isEmpty()) parts << metadata.snapshot.roomName;
         if (!parts.isEmpty()) return QStringLiteral("米家 · ") + parts.join(QStringLiteral(" / "));
     }
+    const auto tuya = m_tuyaMetadata->roomName(device);
+    if (!tuya.isEmpty()) return QStringLiteral("涂鸦 · ") + tuya;
     return roomName({});
 }
 void MainWindow::syncHome() {
@@ -455,6 +467,9 @@ void MainWindow::showSettings() {
         if(QMessageBox::question(&dialog,"删除区域","删除区域？房间会保留。",QMessageBox::Yes|QMessageBox::No)==QMessageBox::Yes && profile==m_home->profile()) m_home->removeZone(id);
     });
     organization->setEnabled(!profile.isEmpty());tabs->addTab(organization,"房间与区域");
+    auto *tuyaPanel = new TuyaMetadataPanel(m_tuyaMetadata, &dialog);
+    tuyaPanel->setObjectName(QStringLiteral("mainTuyaMetadataSettings"));
+    tabs->addTab(tuyaPanel, QStringLiteral("涂鸦同步"));
     auto *about=new QWidget;auto *aboutBox=new QVBoxLayout(about);aboutBox->setContentsMargins(18,20,18,20);
     auto *capabilities=label("MatterDesk 0.6\n\n支持 Matter 灯光、彩光、插座、门锁、窗帘、恒温器、风扇及传感器。可用控制取决于配件报告的功能。\n\n摄像头支持快照、直播、收听、显式开启的双向语音，以及具备能力时的云台方向步进，需控制器提供摄像头接口。\n\nApple 的 Siri、家庭钥匙、iCloud 家庭同步、HomeKit 安防录像与 Apple 家庭中枢服务无法通过当前 Linux Matter 客户端提供。\n\n自动化在应用运行时执行；场景为顺序指令，设备失败会停止，已执行动作不会自动回滚。","muted");capabilities->setWordWrap(true);aboutBox->addWidget(capabilities);aboutBox->addStretch();tabs->addTab(about,"支持范围");
     auto *close=new QDialogButtonBox(QDialogButtonBox::Close);connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);box->addWidget(close);dialog.exec();
