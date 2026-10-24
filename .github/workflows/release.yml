@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       product:
-        description: Application to build and smoke-test (without publishing)
+        description: Application to build, smoke-test and upload (without publishing)
         required: true
         type: choice
         default: mattercamviewer
@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ inputs.product || 'tag' }}
   cancel-in-progress: false
 
 jobs:
@@ -56,6 +56,22 @@ jobs:
             mattercamviewer-v*) echo 'product=mattercamviewer' >> "$GITHUB_OUTPUT" ;;
             *) echo 'Unsupported application tag' >&2; exit 1 ;;
           esac
+      - name: Validate complete application version and release tag
+        id: version
+        env:
+          PRODUCT: ${{ steps.application.outputs.product }}
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("release_package", "scripts/package-release.py")
+          package = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(package)
+          release = package.release_identity(Path.cwd(), os.environ["PRODUCT"])
+          print(json.dumps(release))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("version=" + release["version"] + "\n")
+          PY
       - name: Install Qt and build dependencies
         run: |
           sudo apt-get update
@@ -86,6 +102,32 @@ jobs:
           python3 scripts/build-appimage.py --product "$PRODUCT" --build-dir build \
             --output-dir dist > release-info.json
           cat release-info.json
+      - name: Preserve installable application candidate
+        id: candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.application.outputs.product }}-${{ steps.version.outputs.version }}-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+            dist/*-release-notes.md
+            release-info.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Link tested candidate in run summary
+        env:
+          CANDIDATE_URL: ${{ steps.candidate.outputs.artifact-url }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          with open("release-info.json") as source:
+              release = json.load(source)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"### {release['name']} {release['version']}\n\n")
+              summary.write(f"[Download tested Linux candidate]({os.environ['CANDIDATE_URL']}) (14-day retention).\n\n")
+              summary.write(f"Source: `{os.environ['GITHUB_SHA']}` · AppImage smoke: `{release['smoke']}`.\n")
+          PY
       - name: Publish versioned application release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
@@ -98,10 +140,16 @@ jobs:
           checksum="$(python3 -c 'import json; print(json.load(open("release-info.json"))["checksum"])')"
           notes="$(python3 -c 'import json; print(json.load(open("release-info.json"))["notes"])')"
           title="$(python3 -c 'import json; x=json.load(open("release-info.json")); print(x["name"]+" "+x["version"])')"
+          prerelease="$(python3 -c 'import json; print(str(json.load(open("release-info.json"))["prerelease"]).lower())')"
+          release_args=()
           latest=false
-          if [[ "$PRODUCT" == matterdesk ]]; then latest=true; fi
+          if [[ "$prerelease" == true ]]; then
+            release_args+=(--prerelease)
+          elif [[ "$PRODUCT" == matterdesk ]]; then
+            latest=true
+          fi
           gh release create "$GITHUB_REF_NAME" "dist/$image" "dist/$checksum" \
-            --verify-tag --title "$title" --notes-file "dist/$notes" --latest="$latest"
+            --verify-tag --title "$title" --notes-file "dist/$notes" --latest="$latest" "${release_args[@]}"
       - name: Remove temporary runner-only sandbox profiles
         if: always()
         run: ./scripts/prepare-ci-webengine-sandbox.sh --cleanup

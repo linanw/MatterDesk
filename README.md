@@ -17,9 +17,9 @@ MatterDesk / MatterCamViewer → OHF Matter Server → Matter device or bridge
 
 本项目不连接 Apple ID、Apple 家庭数据库或 iCloud；功能范围见 [功能矩阵](docs/FEATURES.md)。
 
-开发预览：两个应用新增[涂鸦名称与房间同步](docs/TUYA_METADATA_SYNC.md)，使用独立授权服务，保留本机别名、米家资料和 Matter 配对。PaaS 当前只读名称与房间，Custom 可单独开启设备名称写回；完整涂鸦房间双向写入尚不可用，现有正式版下载不包含本预览。
+**beta 测试通道：MatterDesk 0.7.0-beta.1 / MatterCamViewer 2.5.0-beta.1** 新增[涂鸦名称与房间同步](docs/TUYA_METADATA_SYNC.md)，配合插件 2.7.0-beta.1 的独立授权服务使用。管理员开启写入后，PaaS 可写设备名与房间名，Custom 仅设备名；设备移房仍禁用。本机别名、米家资料和配对独立保存。测试包正在准备，以对应预发布页实际列出的附件和校验文件为准，本文不表示已经上传。
 
-Development preview: both applications can use the [Tuya metadata service](docs/TUYA_METADATA_SYNC.md). Local aliases, Xiaomi metadata and pairings remain independent. Current cloud capabilities differ by provider; full bidirectional room writes are unavailable. Existing release downloads do not include this preview.
+The **0.7.0-beta.1 / 2.5.0-beta.1** test channel adds the [Tuya metadata service integration](docs/TUYA_METADATA_SYNC.md). With server writes enabled, PaaS supports device-name and room-name updates; Custom supports device names only. Device movement remains disabled. Beta artifacts are being prepared; use the matching pre-release only after its files appear. Stable 0.6.1 / 2.4.1 remain a separate channel and do not include this integration.
 
 ## 下载与运行 AppImage
 
@@ -49,6 +49,25 @@ sudo apt install libfuse2t64
 ```
 
 解包运行只替代 FUSE 挂载，不绕过 WebEngine 沙箱。应用默认保留沙箱；如果 Ubuntu 的 AppArmor / 用户命名空间策略阻止 renderer，应由系统管理员按应用配置权限，或使用发行版 Qt 的源码构建。[AppImage FUSE 说明](https://docs.appimage.org/user-guide/troubleshooting/fuse.html)、[Ubuntu 24.04 命名空间说明](https://documentation.ubuntu.com/release-notes/24.04/)
+
+## 下载 beta 测试包
+
+涂鸦元数据功能使用独立的两个预发布标签：
+
+- [MatterDesk 0.7.0-beta.1](https://github.com/linanw/MatterDesk/releases/tag/matterdesk-v0.7.0-beta.1)：预期附件 `MatterDesk-0.7.0-beta.1-x86_64.AppImage`。
+- [MatterCamViewer 2.5.0-beta.1](https://github.com/linanw/MatterDesk/releases/tag/mattercamviewer-v2.5.0-beta.1)：预期附件 `MatterCamViewer-2.5.0-beta.1-x86_64.AppImage`。
+
+附件生成并上传后，按该 Release 的 SHA-256 文件校验，再运行：
+
+```bash
+chmod +x MatterDesk-0.7.0-beta.1-x86_64.AppImage
+./MatterDesk-0.7.0-beta.1-x86_64.AppImage
+# 或摄像头应用：
+chmod +x MatterCamViewer-2.5.0-beta.1-x86_64.AppImage
+./MatterCamViewer-2.5.0-beta.1-x86_64.AppImage
+```
+
+如果预发布页没有这些附件，测试包尚未就绪；不要用上方稳定版包代替。两应用使用同一套既有 OHF 控制器与 Fabric 数据目录，升级或退回稳定版时保留配对目录，不需要重新加入设备。先按[联调指南](docs/TUYA_METADATA_SYNC.md)连接独立服务，从一个设备只读绑定开始。Qt 令牌仅存本次会话，重启后需重新输入。
 
 ## 从源码快速开始
 

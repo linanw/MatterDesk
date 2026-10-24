@@ -19,7 +19,8 @@ REPOSITORY = "https://github.com/linanw/MatterDesk"
 PRODUCTS = {
     "matterdesk": {
         "name": "MatterDesk",
-        "version_pattern": r"project\(MatterDesk\s+VERSION\s+(\d+\.\d+\.\d+)",
+        "version_pattern": r"project\(MatterDesk\s+VERSION\s+(\d+\.\d+\.\d+)(?=\s|\))",
+        "prerelease_variable": "MATTERDESK_PRERELEASE",
         "launcher": "run.sh",
         "dev_launcher": "run-homebridge-dev.sh",
         "extra_launchers": [],
@@ -28,6 +29,7 @@ PRODUCTS = {
     "mattercamviewer": {
         "name": "MatterCamViewer",
         "version_pattern": r"set\(MATTERCAMVIEWER_VERSION\s+(\d+\.\d+\.\d+)\)",
+        "prerelease_variable": "MATTERCAMVIEWER_PRERELEASE",
         "launcher": "run-mattercamviewer.sh",
         "dev_launcher": "run-mattercamviewer-homebridge-dev.sh",
         "extra_launchers": ["run-mini.sh", "run-mini-homebridge-dev.sh"],
@@ -45,6 +47,36 @@ COMMON_FILES = [
     "controller/package.json",
     "controller/package-lock.json",
 ]
+
+
+def release_identity(source_root: Path, product: str) -> dict:
+    """Read one product's complete version and reject mismatched release tags."""
+    info = PRODUCTS[product]
+    cmake = (source_root / "CMakeLists.txt").read_text(encoding="utf-8")
+    # Ignore commented-out versions rather than silently packaging the wrong one.
+    cmake = "\n".join(line for line in cmake.splitlines() if not line.lstrip().startswith("#"))
+    match = re.search(info["version_pattern"], cmake)
+    if not match:
+        raise ValueError("The product version is missing from CMakeLists.txt")
+    base = match.group(1)
+    if any(part != str(int(part)) for part in base.split(".")):
+        raise ValueError("The product version must not contain leading zeros")
+    suffix_match = re.search(r"set\(" + info["prerelease_variable"] + r'\s+"([^"\n]*)"\s*\)', cmake)
+    if not suffix_match and re.search(r"set\(" + info["prerelease_variable"] + r"(?:\s|\))", cmake):
+        raise ValueError("The prerelease declaration must use one quoted literal")
+    suffix = suffix_match.group(1) if suffix_match else ""
+    if suffix and not re.fullmatch(r"(?:alpha|beta|rc)\.[1-9][0-9]*", suffix):
+        raise ValueError("The prerelease must be empty or alpha.N, beta.N, rc.N (N >= 1)")
+    version = base + (f"-{suffix}" if suffix else "")
+    tag = f"{product}-v{version}"
+    tagged = os.environ.get("GITHUB_REF_TYPE") == "tag"
+    if tagged and os.environ.get("GITHUB_REF_NAME") != tag:
+        raise ValueError("The release tag does not match this product's complete CMake version")
+    source_ref = tag if tagged else os.environ.get("GITHUB_SHA", "")
+    if not source_ref:
+        source_ref = subprocess.check_output(["git", "-C", source_root, "rev-parse", "HEAD"], text=True).strip()
+    return {"product": product, "name": info["name"], "version": version,
+            "tag": tag, "prerelease": bool(suffix), "sourceRef": source_ref}
 
 
 def copy_file(source: Path, destination: Path, executable: bool = False) -> None:
@@ -68,9 +100,8 @@ def strip_binary(binary: Path) -> None:
         raise ValueError("A developer home directory remains in the release binary")
 
 
-def readme(product: str, info: dict, version: str, platform: str) -> str:
+def readme(product: str, info: dict, version: str, platform: str, source_ref: str) -> str:
     name, launcher, dev_launcher = info["name"], info["launcher"], info["dev_launcher"]
-    tag = f"{product}-v{version}"
     return f"""# {name} {version}
 
 {info['description']}
@@ -111,8 +142,8 @@ MatterDesk 和 MatterCamViewer 共用既有控制器的 Fabric 目录：
 不能仅凭 HomeKit 配对码加入。米家名称/房间和 PTZ 扩展还需要兼容的桥接插件。
 本项目不接入 Apple 家庭账户，不提供 HomeKit Secure Video。
 
-源码与构建说明：[linanw/MatterDesk]({REPOSITORY}/tree/{tag})。
-GitHub Release 同时提供该标签的源码归档。其他 Linux 发行版请从源码构建。
+源码与构建说明：[linanw/MatterDesk]({REPOSITORY}/tree/{source_ref})。
+标签发布同时提供源码归档；Actions 候选包以该提交为准。其他 Linux 发行版请从源码构建。
 项目许可状态及第三方依赖说明见 `THIRD_PARTY_NOTICES.md`；若包内有 `LICENSE`，请同时阅读。
 """
 
@@ -127,13 +158,8 @@ def main() -> None:
     source_root = Path(__file__).resolve().parent.parent
     build_dir, output_dir = args.build_dir.resolve(), args.output_dir.resolve()
     info = PRODUCTS[args.product]
-    match = re.search(info["version_pattern"], (source_root / "CMakeLists.txt").read_text())
-    if not match:
-        raise ValueError("The product version is missing from CMakeLists.txt")
-    version = match.group(1)
-    tag = f"{args.product}-v{version}"
-    if os.environ.get("GITHUB_REF_TYPE") == "tag" and os.environ.get("GITHUB_REF_NAME") != tag:
-        raise ValueError("The release tag does not match this product's CMake version")
+    release = release_identity(source_root, args.product)
+    version, tag = release["version"], release["tag"]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{info['name']}-{version}-{args.platform}"
@@ -156,7 +182,7 @@ def main() -> None:
         binary = staging / "bin" / args.product
         copy_file(build_dir / args.product, binary, True)
         strip_binary(binary)
-        (staging / "README.md").write_text(readme(args.product, info, version, args.platform), encoding="utf-8")
+        (staging / "README.md").write_text(readme(args.product, info, version, args.platform, release["sourceRef"]), encoding="utf-8")
         (staging / "README.md").chmod(0o644)
 
         temporary_archive = Path(temporary) / archive.name
@@ -185,12 +211,11 @@ def main() -> None:
         f"- Linux x86_64 binary built on Ubuntu 24.04; system Qt 6 / WebEngine required.\n"
         f"- Local controller requires Node.js 22.13+ and npm; see the included README.\n"
         f"- Existing MatterDesk controller Fabric and pairing data are preserved.\n"
-        f"- Source: {REPOSITORY}/tree/{tag}\n"
+        f"- Source: {REPOSITORY}/tree/{release['sourceRef']}\n"
         f"- Verify the archive with `sha256sum -c {checksum.name}`.\n",
         encoding="utf-8",
     )
-    print(json.dumps({"product": args.product, "name": info["name"], "version": version,
-                      "tag": tag, "archive": archive.name, "checksum": checksum.name,
+    print(json.dumps({**release, "archive": archive.name, "checksum": checksum.name,
                       "sha256": digest, "notes": notes.name}, ensure_ascii=False))
 
 

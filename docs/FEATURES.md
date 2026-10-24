@@ -1,6 +1,6 @@
 # 功能范围 / Feature scope
 
-本文对应 **MatterDesk 0.6.1** 和 **MatterCamViewer 2.4.1**。安装、配对与启动方式见 [README](../README.md)。两个应用使用同一套 Matter 协议、摄像头播放器和控制器扩展；设备或桥接器没有公布的能力，客户端不会根据名称或外观推断。
+本文区分稳定通道 **MatterDesk 0.6.1 / MatterCamViewer 2.4.1** 与新增涂鸦元数据的 **0.7.0-beta.1 / 2.5.0-beta.1** 测试通道。beta 测试包正在准备，以对应 GitHub 预发布页实际附件为准。安装、配对与启动方式见 [README](../README.md)。两个应用使用同一套 Matter 协议、摄像头播放器和控制器扩展；设备或桥接器没有公布的能力，客户端不会根据名称或外观推断。
 
 MatterDesk provides a full home dashboard; MatterCamViewer focuses on camera viewing. Both use an independent OHF Matter Server. Capability support below describes implemented protocol handling, not universal hardware compatibility or Matter certification.
 
@@ -16,7 +16,7 @@ MatterDesk provides a full home dashboard; MatterCamViewer focuses on camera vie
 | 窗口控制 | 常规桌面主窗口 | 无边框、10 秒自动隐藏控件、置顶、全屏、X11 贴边抽屉 |
 | 摄像头四向步进 | 提供扩展能力时可用 | 提供扩展能力时可用 |
 | 米家名称 / 房间 | 配件详情中显示及明确编辑 | 「米」入口显示及明确编辑 |
-| 涂鸦名称 / 房间（开发预览） | 设置中的独立同步服务、绑定与显示镜像 | 独立「涂」入口；只匹配真实设备，不新增摄像头驱动 |
+| 涂鸦名称 / 房间（beta） | 设置中的独立同步服务、绑定与显示镜像 | 独立「涂」入口；只匹配真实设备，不新增摄像头驱动 |
 | 配对与控制器 | Matter 配对码，本地或显式远程控制器 | 同一本地控制器，也可显式指定远程控制器 |
 
 MatterCamViewer 2.4.1 采用 Mini 2.3 的窗口行为并接入当前元数据功能。窗口默认 800×450；单击切换控件显示，双击先恢复默认尺寸，再进入全屏。F11 直接切换全屏，Esc 退出全屏；普通窗口内 Esc 从直播返回快照。X11 支持拖到屏幕边缘后收起为细边条，悬停展开；Wayland 使用系统拖动并停用屏幕外抽屉。
@@ -75,7 +75,7 @@ MatterCamViewer 2.4.1 采用 Mini 2.3 的窗口行为并接入当前元数据功
 
 ## 与 Apple 家庭的差异
 
-[涂鸦元数据预览](TUYA_METADATA_SYNC.md)为两个 App 增加独立的 HTTP 同步通道。它不更改本地家庭存储或米家协议；普通别名编辑不写回涂鸦。PaaS 可读取名称和房间，Custom 仅设备名写回需单独开启，完整房间双向写入仍未实现。Apple 家庭数据需要涂鸦仓库中的 Mac HomeKit 伴侣另外授权，Qt 应用不直接读取 Apple ID 或家庭数据库。
+[涂鸦元数据 beta](TUYA_METADATA_SYNC.md)为两个 App 增加独立的 HTTP 同步通道，对应插件 2.7.0-beta.1。它保留本地家庭存储与米家协议，普通本机别名编辑不写回涂鸦。管理员开启 `allowWrites` 后，PaaS 支持设备名称和房间名称写入；Custom 仅设备名，不提供 App 房间。设备移动仍禁用，完整房间归属双向同步尚不可用。房间名草稿只针对所选设备明确关联的来源房间；账号权限及设备行为仍需实际验证。Apple 家庭数据需要涂鸦仓库中的 Mac HomeKit 伴侣另外授权，Qt 应用不直接读取 Apple ID 或家庭数据库。
 
 | Apple 家庭能力 | 本项目状态 |
 | --- | --- |
