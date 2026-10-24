@@ -40,12 +40,15 @@ jobs:
       - name: Install pinned controller dependencies
         run: ./scripts/setup-controller.sh
       - name: Configure both applications
+        id: configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON 2>&1 | tee "$RUNNER_TEMP/matterdesk-configure.log"
       - name: Build both applications and offline tests
+        id: build
         run: cmake --build build 2>&1 | tee "$RUNNER_TEMP/matterdesk-build.log"
       - name: Permit WebEngine test sandboxes when required by the runner
         run: ./scripts/prepare-ci-webengine-sandbox.sh build
       - name: Test
+        id: tests
         # CTest contains synthetic/offline suites only. Explicit live camera,
         # PTZ and other production-device probes are not invoked here.
         run: ctest --test-dir build --output-on-failure 2>&1 | tee "$RUNNER_TEMP/matterdesk-test.log"
@@ -67,6 +70,12 @@ jobs:
       - name: Attach failure summaries to the check
         if: failure()
         run: |
-          python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-configure.log"
-          python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-build.log"
-          python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-test.log"
+          if [ '${{ steps.configure.outcome }}' = failure ]; then
+            python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-configure.log"
+          fi
+          if [ '${{ steps.build.outcome }}' = failure ]; then
+            python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-build.log"
+          fi
+          if [ '${{ steps.tests.outcome }}' = failure ]; then
+            python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-test.log"
+          fi

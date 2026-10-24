@@ -88,7 +88,7 @@ public:
             {"devices", QJsonArray{QJsonObject{{"id", SourceDevice}, {"name", "Full Tuya source name"},
                 {"homeId", SourceHome}, {"roomId", SourceRoom}, {"roomStatus", "assigned"},
                 {"bindings", QJsonObject{{"hapSerialNumber", QJsonValue(QJsonValue::Null)},
-                    {"hapAccessoryUuid", QJsonValue(QJsonValue::Null)}, {"matterUniqueIds", QJsonArray{NativeIdentity}}}}}}};
+                    {"hapAccessoryUuid", QJsonValue(QJsonValue::Null)}, {"matterUniqueIds", QJsonArray{NativeIdentity}}}}}}}};
         server.listen(QHostAddress::LocalHost, 0);
         connect(&server, &QTcpServer::newConnection, this, [this] {
             auto *socket = server.nextPendingConnection(); socket->setParent(this);
