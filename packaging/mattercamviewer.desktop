@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MatterCamViewer
+Name[zh_CN]=MatterCamViewer 摄像头查看器
+Comment=Compact Matter camera snapshots and live video
+Comment[zh_CN]=在同一窗口查看 Matter 摄像头快照与直播
+Exec=mattercamviewer
+Icon=mattercamviewer
+Terminal=false
+Categories=AudioVideo;Video;Qt;
+StartupWMClass=mattercamviewer

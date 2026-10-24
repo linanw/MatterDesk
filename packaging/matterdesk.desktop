@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MatterDesk
+Comment=Matter home dashboard and accessory controls
+Comment[zh_CN]=Matter 家庭总览与配件控制
+Exec=matterdesk
+Icon=matterdesk
+Terminal=false
+Categories=Utility;Qt;
+StartupWMClass=matterdesk

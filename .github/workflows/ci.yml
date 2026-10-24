@@ -1,0 +1,62 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_SCALE_FACTOR: '1'
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: controller/package-lock.json
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build \
+            qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
+            libudev-dev libbluetooth-dev fonts-noto-cjk apparmor
+      - name: Install pinned controller dependencies
+        run: ./scripts/setup-controller.sh
+      - name: Configure both applications
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build both applications and offline tests
+        run: cmake --build build
+      - name: Permit WebEngine test sandboxes when required by the runner
+        run: ./scripts/prepare-ci-webengine-sandbox.sh build
+      - name: Test
+        # CTest contains synthetic/offline suites only. Explicit live camera,
+        # PTZ and other production-device probes are not invoked here.
+        run: ctest --test-dir build --output-on-failure
+      - name: Check application entry points
+        run: |
+          ./scripts/run.sh --version
+          ./scripts/run-mattercamviewer.sh --version
+          ./scripts/run-mini.sh --version
+      - name: Check install layout
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/matterdesk-install"
+          test -x "$RUNNER_TEMP/matterdesk-install/bin/matterdesk"
+          test -x "$RUNNER_TEMP/matterdesk-install/bin/mattercamviewer"
+          test -f "$RUNNER_TEMP/matterdesk-install/share/applications/matterdesk.desktop"
+          test -f "$RUNNER_TEMP/matterdesk-install/share/applications/mattercamviewer.desktop"
+      - name: Remove temporary CI AppArmor profiles
+        if: always()
+        run: ./scripts/prepare-ci-webengine-sandbox.sh --cleanup

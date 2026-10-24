@@ -1,0 +1,37 @@
+# Out-of-tree and local build products
+/build/
+/build-*/
+/cmake-build-*/
+/bin/
+/dist/
+/release/
+CMakeUserPresets.json
+*.user
+*.log
+*.core
+core
+
+# Installed dependencies and local editor state
+/controller/node_modules/
+.cache/
+.vscode/
+.idea/
+__pycache__/
+
+# Runtime identities, account files and private keys never belong in source.
+/.env
+/.env.*
+/storage/
+/data/
+/controller/storage/
+/controller/data/
+*.pem
+*.key
+
+# Internal QA receipts and generated distribution archives
+/*validation*.json
+/*-preview.png
+/preview.png
+*.tar.gz
+*.AppImage
+*.deb

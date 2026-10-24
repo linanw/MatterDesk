@@ -1,0 +1,8 @@
+{
+  "name": "matterdesk-controller",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned local OHF Matter controller for MatterDesk",
+  "engines": { "node": ">=22.13.0" },
+  "dependencies": { "matter-server": "1.5.3" }
+}
