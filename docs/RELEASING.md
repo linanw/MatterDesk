@@ -4,14 +4,14 @@
 
 | 应用 | CMake 版本字段 | Git 标签 | AppImage 文件 |
 | --- | --- | --- | --- |
-| MatterDesk | `project(MatterDesk VERSION …)` | `matterdesk-v0.6.0` | `MatterDesk-0.6.0-x86_64.AppImage` |
-| MatterCamViewer | `MATTERCAMVIEWER_VERSION` | `mattercamviewer-v2.4.0` | `MatterCamViewer-2.4.0-x86_64.AppImage` |
+| MatterDesk | `project(MatterDesk VERSION …)` | `matterdesk-v0.6.1` | `MatterDesk-0.6.1-x86_64.AppImage` |
+| MatterCamViewer | `MATTERCAMVIEWER_VERSION` | `mattercamviewer-v2.4.1` | `MatterCamViewer-2.4.1-x86_64.AppImage` |
 
 ## 验证改动
 
 推送 `main` 或向 `main` 提交 PR 会运行 `Build and test`：安装锁定的控制器依赖，构建两个应用，执行全部离线测试，并检查启动入口、安装文件和图标。合成摄像头、随机回环端口与隔离的用户数据目录用于测试；不会访问真实家庭控制器或云账户。
 
-AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / WebEngine、Node.js 22、控制器生产依赖及中文字体。工具的下载地址与 SHA-256 固定在 `scripts/build-appimage.py`，实际依赖和许可证清单随镜像保存。
+AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / WebEngine、Node.js 22、控制器生产依赖及中文、拉丁与符号字体。工具的下载地址与 SHA-256 固定在 `scripts/build-appimage.py`，实际依赖和许可证清单随镜像保存。
 
 ## 先验证 AppImage
 
@@ -21,7 +21,8 @@ AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / Web
 
 - 应用名称与版本输出。
 - 使用随机、未监听的回环端口启动界面并自动退出。
-- 使用包内字体、Node 与控制器入口。
+- 使用包内中文、拉丁与符号字体、Node 与控制器入口。
+- 使用实际 Qt 字形排版检查界面符号、中文与单位；缺字或使用包外字形时发布失败。
 - 使用包内 WebEngine 启动真实 renderer，并解码合成横屏、竖屏视频。
 
 应用沙箱默认保持开启。GitHub 临时 runner 的 AppArmor 例外仅用于测试路径，并在任务结束时移除；它们不进入 AppImage。
@@ -43,9 +44,9 @@ python3 scripts/build-appimage.py --product mattercamviewer \
 先更新对应版本字段与说明，推送并确认 CI 成功。再为已验证的提交建立对应标签，例如：
 
 ```bash
-git tag -a matterdesk-v0.6.0 -m 'MatterDesk 0.6.0'
-git tag -a mattercamviewer-v2.4.0 -m 'MatterCamViewer 2.4.0'
-git push origin matterdesk-v0.6.0 mattercamviewer-v2.4.0
+git tag -a matterdesk-v0.6.1 -m 'MatterDesk 0.6.1'
+git tag -a mattercamviewer-v2.4.1 -m 'MatterCamViewer 2.4.1'
+git push origin matterdesk-v0.6.1 mattercamviewer-v2.4.1
 ```
 
 每个标签独立触发 `Release Linux applications`。流程核对标签与产品版本，构建、测试并生成 AppImage，全部检查成功后才发布镜像与 `.sha256` 校验文件。GitHub 同时生成该标签的源码归档。发布权限只授予该任务的临时仓库 token，不需要额外保存个人访问令牌。
