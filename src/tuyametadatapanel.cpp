@@ -55,11 +55,15 @@ void TuyaMetadataPanel::build() {
     auto *editor = new QFormLayout;
     m_name = new QLineEdit(this); m_name->setObjectName("tuyaName"); m_name->setPlaceholderText(QStringLiteral("完整涂鸦名称；不会修改本地别名"));
     editor->addRow(QStringLiteral("独立同步名称草稿"),m_name);
-    m_room = new QComboBox(this); m_room->setObjectName("tuyaRoom"); editor->addRow(QStringLiteral("来源房间"),m_room); layout->addLayout(editor);
+    m_room = new QComboBox(this); m_room->setObjectName("tuyaRoom"); editor->addRow(QStringLiteral("来源房间"),m_room);
+    m_roomName = new QLineEdit(this); m_roomName->setObjectName("tuyaRoomName");
+    m_roomName->setPlaceholderText(QStringLiteral("仅修改当前设备关联的涂鸦房间名称；不会修改本地房间"));
+    editor->addRow(QStringLiteral("房间名称草稿"),m_roomName); layout->addLayout(editor);
     auto *writeButtons = new QHBoxLayout;
     m_rename = button(QStringLiteral("确认写入涂鸦名称"),"tuyaRename",this); m_move = button(QStringLiteral("确认移动来源房间"),"tuyaMove",this);
+    m_renameRoom = button(QStringLiteral("确认写入房间名"),"tuyaRenameRoom",this);
     m_rebase = button(QStringLiteral("确认新版本，保留草稿"),"tuyaRebase",this);
-    writeButtons->addWidget(m_rename); writeButtons->addWidget(m_move); writeButtons->addWidget(m_rebase); layout->addLayout(writeButtons);
+    writeButtons->addWidget(m_rename); writeButtons->addWidget(m_move); writeButtons->addWidget(m_renameRoom); writeButtons->addWidget(m_rebase); layout->addLayout(writeButtons);
     m_hint = label(this); m_hint->setObjectName("tuyaDraftHint"); layout->addWidget(m_hint);
     m_ack = button(QStringLiteral("已核实来源：解除未知写入锁定（不重发）"),"tuyaAcknowledge",this); layout->addWidget(m_ack);
     layout->addStretch();
@@ -71,7 +75,7 @@ void TuyaMetadataPanel::build() {
         updateState();
     });
     connect(m_refresh,&QPushButton::clicked,this,[this] { if (m_manager) m_manager->refresh(); });
-    connect(m_reset,&QPushButton::clicked,this,[this] { if (m_manager && m_manager->resetSource()) { m_token->clear(); m_draftDevice.clear(); updateState(); } });
+    connect(m_reset,&QPushButton::clicked,this,[this] { if (m_manager && m_manager->resetSource()) { m_token->clear(); m_draftDevice.clear(); clearRoomDraft(); updateState(); } });
     connect(m_enabled,&QCheckBox::toggled,this,[this](bool on) { if (!m_updating && m_manager) m_manager->setEnabled(on); });
     connect(m_mode,&QComboBox::currentIndexChanged,this,[this] { if (!m_updating && m_manager) m_manager->setMode(m_mode->currentData().toString()); });
     connect(m_home,&QComboBox::activated,this,[this] { if (!m_updating && m_manager && m_home->currentData().isValid()) { m_manager->setSourceHome(m_home->currentData().toString()); updateState(); } });
@@ -89,14 +93,29 @@ void TuyaMetadataPanel::build() {
     connect(m_move,&QPushButton::clicked,this,[this] {
         if (m_manager && m_manager->snapshot().value("revision").toString() == m_draftRevision) m_manager->moveRoom(selectedDevice(),m_room->currentData().toString());
     });
+    connect(m_renameRoom,&QPushButton::clicked,this,[this] {
+        if (m_manager && m_manager->state(selectedDevice()).canRenameRoom && roomDraftMatchesSnapshot())
+            m_manager->renameRoom(m_draftRoom,m_roomName->text());
+    });
+    connect(m_room,&QComboBox::currentIndexChanged,this,[this] {
+        if (!m_updating) { clearRoomDraft(); m_roomDraftDevice = selectedDevice().key; updateState(); }
+    });
     connect(m_rebase,&QPushButton::clicked,this,[this] {
-        if (m_manager) { m_draftRevision = m_manager->snapshot().value("revision").toString(); updateState(); }
+        if (m_manager && !m_manager->state(selectedDevice()).busy) {
+            m_draftRevision = m_manager->snapshot().value("revision").toString(); rebaseRoomDraft(); updateState();
+        }
     });
     connect(m_name,&QLineEdit::textEdited,this,[this] { updateState(); });
+    connect(m_roomName,&QLineEdit::textChanged,this,[this] {
+        if (!m_updating) { m_roomDirty = true; updateState(); }
+    });
     connect(m_ack,&QPushButton::clicked,this,[this] { if (m_manager) m_manager->acknowledgeUncertain(); });
     if (m_manager) {
         connect(m_manager,&TuyaMetadataManager::changed,this,&TuyaMetadataPanel::updateState);
-        connect(m_manager,&TuyaMetadataManager::operationFinished,this,[this](const QString &,const QString &,bool success,const QString &) { if (success) m_draftDevice.clear(); updateState(); });
+        connect(m_manager,&TuyaMetadataManager::operationFinished,this,[this](const QString &,const QString &operation,bool success,const QString &) {
+            if (success) { if (operation == "room.rename") clearRoomDraft(); else m_draftDevice.clear(); }
+            updateState();
+        });
     }
     updateState();
 }
@@ -110,12 +129,52 @@ MatterDevice TuyaMetadataPanel::selectedDevice() const {
     return {};
 }
 
-void TuyaMetadataPanel::setDevice(const MatterDevice &device) { m_fixed = device; m_draftDevice.clear(); updateState(); }
+void TuyaMetadataPanel::setDevice(const MatterDevice &device) {
+    if (m_fixed.key != device.key) clearRoomDraft();
+    m_fixed = device; m_draftDevice.clear(); updateState();
+}
+
+void TuyaMetadataPanel::clearRoomDraft() {
+    m_roomDraftDevice.clear(); m_draftRoom.clear(); m_roomDraftRevision.clear(); m_roomDraftEpoch.clear();
+    m_roomDraftServer.clear(); m_roomDraftHome.clear(); m_roomDirty = false;
+    if (m_roomName) { const QSignalBlocker blocked(m_roomName); m_roomName->clear(); }
+}
+
+QJsonObject TuyaMetadataPanel::selectedSourceRoom() const {
+    if (!m_manager || !m_manager->sourceHomeConfigured() || !m_room->currentData().isValid()) return {};
+    const auto snapshot = m_manager->snapshot();
+    if (!snapshot.value("roomsAvailable").toBool()) return {};
+    const auto id = m_room->currentData().toString(), home = m_manager->sourceHomeId();
+    for (const auto &value : snapshot.value("rooms").toArray()) {
+        const auto room = value.toObject();
+        if (room.value("id") == id && room.value("homeId") == home) return room;
+    }
+    return {};
+}
+
+bool TuyaMetadataPanel::roomDraftMatchesSnapshot() const {
+    if (!m_manager || m_draftRoom.isEmpty() || m_roomDraftDevice != selectedDevice().key) return false;
+    const auto snapshot = m_manager->snapshot(), room = selectedSourceRoom();
+    return !room.isEmpty() && room.value("id") == m_draftRoom &&
+        m_manager->state(selectedDevice()).roomId == m_draftRoom &&
+        m_roomDraftHome == m_manager->sourceHomeId() && room.value("homeId") == m_roomDraftHome &&
+        snapshot.value("serverId") == m_roomDraftServer && snapshot.value("sourceEpoch") == m_roomDraftEpoch &&
+        snapshot.value("revision") == m_roomDraftRevision;
+}
+
+void TuyaMetadataPanel::rebaseRoomDraft() {
+    const auto room = selectedSourceRoom();
+    if (!m_manager || room.isEmpty() || room.value("id").toString() != m_manager->state(selectedDevice()).roomId) return;
+    const auto snapshot = m_manager->snapshot();
+    m_roomDraftDevice = selectedDevice().key; m_draftRoom = room.value("id").toString();
+    m_roomDraftHome = m_manager->sourceHomeId(); m_roomDraftServer = snapshot.value("serverId").toString();
+    m_roomDraftEpoch = snapshot.value("sourceEpoch").toString(); m_roomDraftRevision = snapshot.value("revision").toString();
+}
 
 void TuyaMetadataPanel::updateState() {
     if (m_updating || !m_manager) return;
     m_updating = true;
-    if (m_panelProfile != m_manager->profile()) { m_panelProfile = m_manager->profile(); m_draftDevice.clear(); m_draftRevision.clear(); m_token->clear(); m_url->clear(); }
+    if (m_panelProfile != m_manager->profile()) { m_panelProfile = m_manager->profile(); m_draftDevice.clear(); m_draftRevision.clear(); clearRoomDraft(); m_token->clear(); m_url->clear(); }
     const auto snap = m_manager->snapshot();
     const auto oldKey = m_fixed.key.isEmpty() ? m_device->currentData().toString() : m_fixed.key;
     m_device->clear();
@@ -153,29 +212,42 @@ void TuyaMetadataPanel::updateState() {
         m_draftDevice = device.key; m_draftRevision = snap.value("revision").toString();
         m_name->setText(state.managedName.isEmpty() ? state.fullName : state.managedName);
     }
-    const auto roomChoice = m_room->currentData().toString(); m_room->clear();
+    const bool roomDeviceChanged = m_roomDraftDevice != device.key;
+    const auto roomChoice = roomDeviceChanged ? state.roomId : m_room->currentData().toString(); m_room->clear();
     m_room->addItem(QStringLiteral("仅选择已知来源房间；不支持猜测/批量替换"),QVariant());
     for (auto value : snap.value("rooms").toArray()) {
         const auto room = value.toObject(); if (room.value("homeId").toString() == m_manager->sourceHomeId()) m_room->addItem(room.value("name").toString(),room.value("id").toString());
     }
     selected = m_room->findData(roomChoice.isEmpty() ? state.roomId : roomChoice); if (selected >= 0) m_room->setCurrentIndex(selected);
+    if (roomDeviceChanged) { clearRoomDraft(); m_roomDraftDevice = device.key; }
+    const auto sourceRoom = selectedSourceRoom();
+    if (!m_roomDirty && !sourceRoom.isEmpty()) {
+        m_roomName->setText(sourceRoom.value("name").toString()); rebaseRoomDraft();
+    }
+    const bool roomStale = m_roomDirty && !roomDraftMatchesSnapshot();
     const bool stale = !m_draftRevision.isEmpty() && m_draftRevision != snap.value("revision").toString();
     m_rename->setEnabled(state.canRename && !stale && !m_name->text().trimmed().isEmpty());
     m_move->setEnabled(state.canMoveRoom && !stale && m_room->currentData().isValid());
-    m_rebase->setEnabled(stale && !state.busy && state.available);
-    m_name->setEnabled(present && state.bound && !state.busy); m_room->setEnabled(state.canMoveRoom && !stale);
-    m_values->setText(QStringLiteral("完整来源名称：%1\n独立镜像名称：%2\n家庭：%3\n房间：%4\n最后权威观测：%5\n设备绑定：%6\n写入能力：名称 %7 / 房间 %8")
+    m_renameRoom->setEnabled(state.canRenameRoom && !roomStale && roomDraftMatchesSnapshot() &&
+        !m_roomName->text().trimmed().isEmpty() && m_roomName->text() != sourceRoom.value("name").toString());
+    m_rebase->setEnabled((stale || roomStale) && !state.busy && state.available);
+    m_name->setEnabled(present && state.bound && !state.busy);
+    m_room->setEnabled((state.canMoveRoom || state.canRenameRoom) && !state.busy);
+    m_roomName->setEnabled(state.canRenameRoom && !sourceRoom.isEmpty() && state.roomId == sourceRoom.value("id").toString());
+    m_values->setText(QStringLiteral("完整来源名称：%1\n独立镜像名称：%2\n家庭：%3\n房间：%4\n最后权威观测：%5\n设备绑定：%6\n写入能力：设备名称 %7 / 移动 %8 / 房间名称 %9")
         .arg(state.fullName,state.managedName,state.homeName,
              snap.value("roomsAvailable").toBool() ? state.roomName : QStringLiteral("未知 / 此来源不提供房间；保留旧资料"),
              state.observedAt,state.bound ? QStringLiteral("已明确绑定") : QStringLiteral("未绑定"),
-             state.canRename ? QStringLiteral("可用") : QStringLiteral("不可用"),state.canMoveRoom ? QStringLiteral("可用") : QStringLiteral("不可用")));
+             state.canRename ? QStringLiteral("可用") : QStringLiteral("不可用"),state.canMoveRoom ? QStringLiteral("可用") : QStringLiteral("不可用"),
+             state.canRenameRoom ? QStringLiteral("可用") : QStringLiteral("不可用")));
     QString hint;
     if (m_manager->profile().isEmpty()) hint = QStringLiteral("请先连接正式 OHF Matter 控制器；演示模式不能建立云同步绑定。");
-    else if (stale) hint = QStringLiteral("来源版本已变化。草稿保留；检查当前资料后明确确认新版本，再提交。采用来源会替换此独立草稿。");
+    else if (roomStale) hint = QStringLiteral("房间来源身份、家庭或版本已变化。房间名称草稿已保留；核对当前房间并明确确认新版本后再提交。未知写入期间禁止重发。");
+    else if (stale) hint = QStringLiteral("来源版本已变化。草稿保留；检查当前资料后明确确认新版本，再提交。采用来源会替换此独立设备名称草稿。");
     else if (state.conflict) hint = QStringLiteral("基线与来源存在冲突。请明确采用来源，或核实最新来源后重新编辑；不会自动反写。");
     else if (!state.hasBaseline) hint = QStringLiteral("先确认源设备，再采用来源建立基线。标准 Matter 短标签不作为云名称编辑；本地别名也不会触发云写入。");
-    else if (!state.canRename) hint = QStringLiteral("此来源未声明可验证的名称写入，或同步尚未启用。可读取和跟随资料；不猜测云接口。令牌不会写入配置。");
-    else hint = QStringLiteral("编辑此独立名称并明确确认后才发送一次条件写入。来源变化会阻止旧草稿；超时/未知结果不会自动重试。");
+    else if (!state.canRename && !state.canRenameRoom) hint = QStringLiteral("此来源未声明可验证的名称写入，或同步尚未启用。可读取和跟随资料；不猜测云接口。令牌不会写入配置。");
+    else hint = QStringLiteral("设备名称与房间名称使用各自草稿，明确点击对应确认按钮后才发送一次条件写入。房间名仅修改所选设备关联的来源房间；不创建、删除房间或修改本地别名。未知结果不会自动重试。");
     m_hint->setText(hint); m_ack->setEnabled(m_manager->hasUncertainWrite() && state.available && !m_manager->requestInProgress());
     m_reset->setEnabled(!state.busy);
     m_updating = false;

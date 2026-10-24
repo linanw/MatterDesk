@@ -251,10 +251,8 @@ def main():
     package = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(package)
     info = package.PRODUCTS[args.product]
-    version = re.search(info["version_pattern"], (source / "CMakeLists.txt").read_text()).group(1)
-    tag = f"{args.product}-v{version}"
-    if os.environ.get("GITHUB_REF_TYPE") == "tag" and os.environ.get("GITHUB_REF_NAME") != tag:
-        raise ValueError("The tag does not match this product's CMake version")
+    release = package.release_identity(source, args.product)
+    version, tag = release["version"], release["tag"]
     build_dir, output = args.build_dir.resolve(), args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     cache = args.tools_dir.resolve() if args.tools_dir else output / ".tools"
@@ -365,7 +363,7 @@ WebEngine's sandbox stays enabled. Ubuntu AppArmor/user-namespace policy must
 allow the application renderer; the package never disables sandboxing or changes host policy.
 Runtime licenses and actual dependency versions are in `usr/share/doc/licenses/`.
 Qt is dynamically linked and can be replaced in an extracted AppDir.
-Source: {package.REPOSITORY}/tree/{tag}
+Source: {package.REPOSITORY}/tree/{release['sourceRef']}
 ''')
     image = output / f"{info['name']}-{version}-x86_64.AppImage"
     run([tools["appimagetool-x86_64.AppImage"], "--runtime-file", tools["runtime-x86_64"],
@@ -377,8 +375,32 @@ Source: {package.REPOSITORY}/tree/{tag}
     digest = hashlib.sha256(image.read_bytes()).hexdigest()
     write(checksum, f"{digest}  {image.name}\n")
     notes = output / f"{info['name']}-{version}-release-notes.md"
-    write(notes, f"{info['description']}\n\nUbuntu 24.04 x86_64 AppImage with Qt/WebEngine, Node.js 22.22.1 and pinned controller dependencies. No first-launch npm installation. Existing Fabric and pairing data are preserved.\n\nSource: {package.REPOSITORY}/tree/{tag}\n\nVerify with `sha256sum -c {checksum.name}`.\n")
-    print(json.dumps({"product": args.product, "name": info["name"], "version": version, "tag": tag,
+    channel = "测试版 / Prerelease" if release["prerelease"] else "正式版 / Stable release"
+    write(notes, f'''# {info['name']} {version}
+
+{channel}
+
+{info['description']}
+
+Ubuntu 24.04 x86_64 AppImage，内含 Qt/WebEngine、Node.js 22.22.1 与锁定的控制器依赖；首次启动无需 npm 安装。保留现有 Fabric、配对与独立涂鸦同步设置。此离线构建/烟测未验证真实家庭设备、云写入或视频流兼容性。
+
+Ubuntu 24.04 x86_64 AppImage with Qt/WebEngine, Node.js 22.22.1 and pinned controller dependencies. No first-launch npm installation. Existing Fabric, pairing data and independent Tuya sync settings are preserved. Offline build/smoke checks do not validate live household devices, cloud writes or camera stream compatibility.
+
+下载后执行 / Run after downloading:
+
+```bash
+sha256sum -c {checksum.name}
+chmod +x {image.name}
+./{image.name}
+```
+
+需要 FUSE，或使用 `APPIMAGE_EXTRACT_AND_RUN=1 ./{image.name}`。WebEngine 沙箱保持开启；主机须允许 renderer 所需的用户命名空间。
+
+FUSE is required, or use `APPIMAGE_EXTRACT_AND_RUN=1 ./{image.name}`. The WebEngine sandbox stays enabled; the host must allow the renderer's user namespaces.
+
+Source: {package.REPOSITORY}/tree/{release['sourceRef']}
+''')
+    print(json.dumps({**release,
                       "appimage": image.name, "checksum": checksum.name, "sha256": digest,
                       "notes": notes.name, "smoke": "skipped" if args.skip_smoke else "passed"}))
 

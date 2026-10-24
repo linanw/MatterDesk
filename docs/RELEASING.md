@@ -2,10 +2,12 @@
 
 同一个仓库维护公共协议、播放器和控制器模型，两个应用独立编号、打包和发布。
 
-| 应用 | CMake 版本字段 | Git 标签 | AppImage 文件 |
+| 应用 | CMake 基础版本 / 预发布字段 | 本次测试版 Git 标签 | AppImage 文件 |
 | --- | --- | --- | --- |
-| MatterDesk | `project(MatterDesk VERSION …)` | `matterdesk-v0.6.0` | `MatterDesk-0.6.0-x86_64.AppImage` |
-| MatterCamViewer | `MATTERCAMVIEWER_VERSION` | `mattercamviewer-v2.4.0` | `MatterCamViewer-2.4.0-x86_64.AppImage` |
+| MatterDesk | `project(MatterDesk VERSION 0.7.0)` / `MATTERDESK_PRERELEASE "beta.1"` | `matterdesk-v0.7.0-beta.1` | `MatterDesk-0.7.0-beta.1-x86_64.AppImage` |
+| MatterCamViewer | `MATTERCAMVIEWER_VERSION 2.5.0` / `MATTERCAMVIEWER_PRERELEASE "beta.1"` | `mattercamviewer-v2.5.0-beta.1` | `MatterCamViewer-2.5.0-beta.1-x86_64.AppImage` |
+
+CMake 的数值版本保持 `major.minor.patch`；对应 `*_PRERELEASE` 只接受空字符串或 `alpha.N`、`beta.N`、`rc.N`（N 从 1 开始）。CMake 将完整版本传给应用的 `--version`，打包脚本读取相同字段，因此应用、镜像文件名与标签中的版本必须完全一致。正式发布时将对应的预发布字段改为 `""`，保留 `matterdesk-vX.Y.Z` / `mattercamviewer-vX.Y.Z` 标签规范。不要将预发布仅标在文件名或 Release 标题中。
 
 ## 验证改动
 
@@ -15,7 +17,26 @@ AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / Web
 
 ## 先验证 AppImage
 
-在 GitHub **Actions → Release Linux applications → Run workflow** 中选择 `main` 和产品。手动运行只构建与测试，不创建 Release。
+在 GitHub **Actions → Release Linux applications → Run workflow** 中选择需要验证的分支（可以是功能分支）和产品。手动运行会构建两个应用并执行完整离线回归，再打包、烟测所选产品；不会创建标签或 GitHub Release。
+
+也可以指定已推送的分支与产品运行：
+
+```bash
+gh workflow run release.yml --ref <branch> --field product=matterdesk
+gh workflow run release.yml --ref <branch> --field product=mattercamviewer
+```
+
+成功后在该运行的 **Summary → Artifacts** 下载候选包；运行摘要也提供直接链接。产物保留 14 天，包含 `.AppImage`、对应 `.sha256`、中英文发布说明和 `release-info.json`（完整版本、实际源码提交、SHA-256 与烟测状态）。两个产品需要分别运行。手动候选包中的源码链接指向实际构建提交，之后即使分支继续更新也可追溯。Actions 下载通常需要登录 GitHub；需要长期公开下载时使用下面的标签预发布流程。
+
+下载并解压 Actions 的产物压缩包后，在镜像与校验文件所在目录执行：
+
+```bash
+sha256sum -c MatterDesk-0.7.0-beta.1-x86_64.AppImage.sha256
+chmod +x MatterDesk-0.7.0-beta.1-x86_64.AppImage
+./MatterDesk-0.7.0-beta.1-x86_64.AppImage
+```
+
+MatterCamViewer 使用它自己的文件名。没有可用 FUSE 时，可用 `APPIMAGE_EXTRACT_AND_RUN=1 ./<文件名>.AppImage`。这仍需主机允许 WebEngine renderer 的用户命名空间。
 
 构建脚本会检查包内共享库与 WebEngine 资源，解包最终 AppImage 并验证：
 
@@ -24,7 +45,7 @@ AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / Web
 - 使用包内字体、Node 与控制器入口。
 - 使用包内 WebEngine 启动真实 renderer，并解码合成横屏、竖屏视频。
 
-应用沙箱默认保持开启。GitHub 临时 runner 的 AppArmor 例外仅用于测试路径，并在任务结束时移除；它们不进入 AppImage。
+应用沙箱默认保持开启。GitHub 临时 runner 的 AppArmor 例外仅用于测试路径，并在任务结束时移除；它们不进入 AppImage。流程不会用跳过测试或关闭沙箱来生成候选包。离线回归与烟测不代表真实家庭设备、云写入或视频流已完成物理验证。
 
 本地也可以在安装构建依赖后运行：
 
@@ -38,19 +59,19 @@ python3 scripts/build-appimage.py --product mattercamviewer \
 
 本地生成的镜像以该机器的 Qt 和系统库为基础。正式 Release 使用 GitHub 的 Ubuntu 24.04 构建环境。
 
-## 发布版本
+## 发布预发布或正式版本
 
 先更新对应版本字段与说明，推送并确认 CI 成功。再为已验证的提交建立对应标签，例如：
 
 ```bash
-git tag -a matterdesk-v0.6.0 -m 'MatterDesk 0.6.0'
-git tag -a mattercamviewer-v2.4.0 -m 'MatterCamViewer 2.4.0'
-git push origin matterdesk-v0.6.0 mattercamviewer-v2.4.0
+git tag -a matterdesk-v0.7.0-beta.1 -m 'MatterDesk 0.7.0-beta.1'
+git tag -a mattercamviewer-v2.5.0-beta.1 -m 'MatterCamViewer 2.5.0-beta.1'
+git push origin matterdesk-v0.7.0-beta.1 mattercamviewer-v2.5.0-beta.1
 ```
 
-每个标签独立触发 `Release Linux applications`。流程核对标签与产品版本，构建、测试并生成 AppImage，全部检查成功后才发布镜像与 `.sha256` 校验文件。GitHub 同时生成该标签的源码归档。发布权限只授予该任务的临时仓库 token，不需要额外保存个人访问令牌。
+每个标签独立触发 `Release Linux applications`。流程先核对标签与产品完整版本，构建、测试并生成 AppImage，全部检查成功且保存候选产物后才发布镜像与 `.sha256` 校验文件。GitHub 同时生成该标签的源码归档。发布权限只授予该任务的临时仓库 token，不需要额外保存个人访问令牌。
 
-MatterDesk 的发布设为仓库 latest；MatterCamViewer 通过自己的标签链接访问，因此两个产品的版本号不会混淆。
+带预发布字段的标签使用 `gh release create --prerelease --latest=false`，页面明确显示 **Pre-release**，不会替换现有正式版的 latest。正式 MatterDesk 发布仍设为仓库 latest；正式 MatterCamViewer 发布通过自己的标签链接访问，不占用仓库 latest。
 
 已发布标签应保留原提交。修复后递增对应应用版本并建立新标签，旧版本可继续下载。
 
