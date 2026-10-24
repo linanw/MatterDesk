@@ -13,7 +13,7 @@ CMake 的数值版本保持 `major.minor.patch`；对应 `*_PRERELEASE` 只接�
 
 推送 `main` 或向 `main` 提交 PR 会运行 `Build and test`：安装锁定的控制器依赖，构建两个应用，执行全部离线测试，并检查启动入口、安装文件和图标。合成摄像头、随机回环端口与隔离的用户数据目录用于测试；不会访问真实家庭控制器或云账户。
 
-AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / WebEngine、Node.js 22、控制器生产依赖及中文字体。工具的下载地址与 SHA-256 固定在 `scripts/build-appimage.py`，实际依赖和许可证清单随镜像保存。
+AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / WebEngine、Node.js 22、控制器生产依赖及中文、拉丁与符号字体。工具的下载地址与 SHA-256 固定在 `scripts/build-appimage.py`，实际依赖和许可证清单随镜像保存。
 
 ## 先验证 AppImage
 
@@ -42,7 +42,8 @@ MatterCamViewer 使用它自己的文件名。没有可用 FUSE 时，可用 `AP
 
 - 应用名称与版本输出。
 - 使用随机、未监听的回环端口启动界面并自动退出。
-- 使用包内字体、Node 与控制器入口。
+- 使用包内中文、拉丁与符号字体、Node 与控制器入口。
+- 使用实际 Qt 字形排版检查界面符号、中文与单位；缺字或使用包外字形时发布失败。
 - 使用包内 WebEngine 启动真实 renderer，并解码合成横屏、竖屏视频。
 
 应用沙箱默认保持开启。GitHub 临时 runner 的 AppArmor 例外仅用于测试路径，并在任务结束时移除；它们不进入 AppImage。流程不会用跳过测试或关闭沙箱来生成候选包。离线回归与烟测不代表真实家庭设备、云写入或视频流已完成物理验证。

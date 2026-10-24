@@ -36,7 +36,7 @@ chmod +x MatterCamViewer-2.4.1-x86_64.AppImage
 ./MatterCamViewer-2.4.1-x86_64.AppImage
 ```
 
-AppImage 包含对应应用、Qt / WebEngine、Node.js 22 和锁定的控制器生产依赖。它复用已有本地控制器，必要时启动附带控制器；运行时不在镜像内安装 npm 包。配对数据与日志仍写入下文的 XDG 目录，不写到只读镜像内。使用远程控制器也可传入 `--server ws://CONTROLLER_HOST:5580/ws`。
+AppImage 包含对应应用、Qt / WebEngine、Node.js 22 和锁定的控制器生产依赖。0.6.1 / 2.4.1 补齐中文、拉丁与符号字体，修复刷新、全屏、设置等按钮的缺字方框。它复用已有本地控制器，必要时启动附带控制器；运行时不在镜像内安装 npm 包。配对数据与日志仍写入下文的 XDG 目录，不写到只读镜像内。使用远程控制器也可传入 `--server ws://CONTROLLER_HOST:5580/ws`。
 
 当前 CI 构建基线为 **Ubuntu 24.04 x86_64**，仍依赖宿主 Linux 内核、显示 / 图形驱动、音频服务与兼容的系统 ABI；不承诺 Ubuntu 22.04 或任意旧发行版兼容。源码构建和依赖系统 Qt 的轻量 tar 包仍是可选方式。
 
