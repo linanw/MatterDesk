@@ -6,8 +6,8 @@ Two Linux / Qt 6 Matter clients sharing the protocol, camera player and local-co
 
 | 应用 / Application | 当前版本 / Version | 用途 / Purpose |
 | --- | --- | --- |
-| **MatterDesk** | **0.6.1** | 家庭总览、房间、收藏、配件控制、场景和应用内自动化；摄像头在主窗口右侧播放。 / A home dashboard with rooms, favorites, accessory controls, scenes and in-app automations; camera playback uses the main panel. |
-| **MatterCamViewer** | **2.4.1** | 专注摄像头的无边框窗口；快照与直播铺满同一画面，支持自动隐藏控件、置顶和 X11 贴边抽屉。 / A compact frameless camera viewer with an integrated snapshot/live view, auto-hiding controls, pinning and an X11 edge drawer. |
+| **MatterDesk** | **0.6.2** | 家庭总览、房间、收藏、配件控制、场景和应用内自动化；摄像头在主窗口右侧播放。 / A home dashboard with rooms, favorites, accessory controls, scenes and in-app automations; camera playback uses the main panel. |
+| **MatterCamViewer** | **2.4.2** | 专注摄像头的无边框窗口；快照与直播铺满同一画面，支持自动隐藏控件、置顶和 X11 贴边抽屉。 / A compact frameless camera viewer with an integrated snapshot/live view, auto-hiding controls, pinning and an X11 edge drawer. |
 
 两者连接 **OHF Matter Server**，再由控制器连接 Matter 设备或桥接器。Homebridge 的 IP 不是 Matter Server 的 WebSocket 地址。仅支持 HomeKit 的设备需要桥接端另外提供 Matter 能力。界面文字目前主要为简体中文。
 
@@ -21,18 +21,18 @@ MatterDesk / MatterCamViewer → OHF Matter Server → Matter device or bridge
 
 在 [GitHub Releases](https://github.com/linanw/MatterDesk/releases) 下载对应应用，无需另外安装 Qt、Node.js 或 npm：
 
-- `MatterDesk-0.6.1-x86_64.AppImage`：完整家庭控制界面。
-- `MatterCamViewer-2.4.1-x86_64.AppImage`：摄像头专用窗口。
+- `MatterDesk-0.6.2-x86_64.AppImage`：完整家庭控制界面。
+- `MatterCamViewer-2.4.2-x86_64.AppImage`：摄像头专用窗口。
 
 ```bash
-chmod +x MatterDesk-0.6.1-x86_64.AppImage
-./MatterDesk-0.6.1-x86_64.AppImage
+chmod +x MatterDesk-0.6.2-x86_64.AppImage
+./MatterDesk-0.6.2-x86_64.AppImage
 
-chmod +x MatterCamViewer-2.4.1-x86_64.AppImage
-./MatterCamViewer-2.4.1-x86_64.AppImage
+chmod +x MatterCamViewer-2.4.2-x86_64.AppImage
+./MatterCamViewer-2.4.2-x86_64.AppImage
 ```
 
-AppImage 包含对应应用、Qt / WebEngine、Node.js 22 和锁定的控制器生产依赖。0.6.1 / 2.4.1 补齐中文、拉丁与符号字体，修复刷新、全屏、设置等按钮的缺字方框。它复用已有本地控制器，必要时启动附带控制器；运行时不在镜像内安装 npm 包。配对数据与日志仍写入下文的 XDG 目录，不写到只读镜像内。使用远程控制器也可传入 `--server ws://CONTROLLER_HOST:5580/ws`。
+AppImage 包含对应应用、Qt / WebEngine、Node.js 22 和锁定的控制器生产依赖。已包含中文、拉丁与符号字体，支持刷新、全屏、设置等按钮的图标。它复用已有本地控制器，必要时启动附带控制器；运行时不在镜像内安装 npm 包。配对数据与日志仍写入下文的 XDG 目录，不写到只读镜像内。使用远程控制器也可传入 `--server ws://CONTROLLER_HOST:5580/ws`。
 
 当前 CI 构建基线为 **Ubuntu 24.04 x86_64**，仍依赖宿主 Linux 内核、显示 / 图形驱动、音频服务与兼容的系统 ABI；不承诺 Ubuntu 22.04 或任意旧发行版兼容。源码构建和依赖系统 Qt 的轻量 tar 包仍是可选方式。
 
@@ -43,7 +43,7 @@ AppImage 包含对应应用、Qt / WebEngine、Node.js 22 和锁定的控制器�
 ```bash
 sudo apt install libfuse2t64
 # 或在无 FUSE 的环境中：
-./MatterCamViewer-2.4.1-x86_64.AppImage --appimage-extract-and-run
+./MatterCamViewer-2.4.2-x86_64.AppImage --appimage-extract-and-run
 ```
 
 解包运行只替代 FUSE 挂载，不绕过 WebEngine 沙箱。应用默认保留沙箱；如果 Ubuntu 的 AppArmor / 用户命名空间策略阻止 renderer，应由系统管理员按应用配置权限，或使用发行版 Qt 的源码构建。[AppImage FUSE 说明](https://docs.appimage.org/user-guide/troubleshooting/fuse.html)、[Ubuntu 24.04 命名空间说明](https://documentation.ubuntu.com/release-notes/24.04/)
@@ -111,7 +111,7 @@ MATTER_INTERFACE=YOUR_INTERFACE ./scripts/start-controller.sh
 ./scripts/run-mattercamviewer-homebridge-dev.sh
 ```
 
-AppImage 使用同一显式选项，例如 `ENABLE_TEST_NET_DCL=true ./MatterCamViewer-2.4.1-x86_64.AppImage`。
+AppImage 使用同一显式选项，例如 `ENABLE_TEST_NET_DCL=true ./MatterCamViewer-2.4.2-x86_64.AppImage`。
 
 这为新启动的控制器设置 `ENABLE_TEST_NET_DCL=true`，不改变已运行的服务。已有服务需要由其管理者在保留原 Fabric 目录的前提下以相应配置重启。正常启动不会默认启用开发证书。
 
@@ -162,7 +162,7 @@ cmake --install build --prefix "$HOME/.local"
 
 CMake 安装不复制 Node 依赖或启动脚本。桌面入口连接已运行的本地控制器；首次使用可先从源码 / Release 目录运行 `scripts/start-controller.sh`，或使用完整启动脚本。源码树中的 `scripts/run*.sh` 优先选择 `build/`，其次为 Release 的 `bin/`。
 
-两个应用分别使用 `matterdesk-v0.6.1`、`mattercamviewer-v2.4.1` 形式的版本标签。发布流水线核对产品版本、构建与测试，再为对应产品生成独立 AppImage、可选轻量 tar 包及 SHA-256 校验文件，发布到 GitHub Release。源码属于同一个仓库。
+两个应用分别使用 `matterdesk-v0.6.2`、`mattercamviewer-v2.4.2` 形式的版本标签。发布流水线核对产品版本、构建与测试，再为对应产品生成独立 AppImage、可选轻量 tar 包及 SHA-256 校验文件，发布到 GitHub Release。源码属于同一个仓库。
 
 AppImage 带 Qt / WebEngine 和控制器运行依赖；轻量 tar 包动态依赖系统 Qt，需要另装 Node 控制器依赖。请查具体 Release 的构建版本与系统基线。源码包不包含可执行文件、Node 依赖、Fabric 数据或内部 QA 文件。AppImage 的实际依赖清单及许可文件放在镜像内 `usr/share/doc/licenses/`，可用 `--appimage-extract` 查看；该目录不会改变项目尚未指定源码许可的状态。
 
@@ -170,9 +170,9 @@ AppImage 带 Qt / WebEngine 和控制器运行依赖；轻量 tar 包动态依�
 
 ## English guide
 
-**MatterDesk 0.6.1** is the full home dashboard. **MatterCamViewer 2.4.1** is the camera-only application, combining the Mini 2.3 window behavior with the current metadata integration. Both connect to an **OHF Matter Server**; a Homebridge host is not automatically a Matter Server. The interface is primarily in Simplified Chinese.
+**MatterDesk 0.6.2** is the full home dashboard. **MatterCamViewer 2.4.2** is the camera-only application, combining the Mini 2.3 window behavior with the current metadata integration. Both connect to an **OHF Matter Server**; a Homebridge host is not automatically a Matter Server. The interface is primarily in Simplified Chinese.
 
-For a ready-to-run application, download `MatterDesk-0.6.1-x86_64.AppImage` or `MatterCamViewer-2.4.1-x86_64.AppImage` from [Releases](https://github.com/linanw/MatterDesk/releases), make it executable and run it. Each includes Qt / WebEngine, Node.js 22 and production controller dependencies, so system Qt / Node installation is unnecessary. The build baseline is **Ubuntu 24.04 x86_64**; host kernel, graphics / audio support and compatible system ABI remain required. Older distributions are not guaranteed.
+For a ready-to-run application, download `MatterDesk-0.6.2-x86_64.AppImage` or `MatterCamViewer-2.4.2-x86_64.AppImage` from [Releases](https://github.com/linanw/MatterDesk/releases), make it executable and run it. Each includes Qt / WebEngine, Node.js 22 and production controller dependencies, so system Qt / Node installation is unnecessary. The build baseline is **Ubuntu 24.04 x86_64**; host kernel, graphics / audio support and compatible system ABI remain required. Older distributions are not guaranteed.
 
 If FUSE 2 is missing on Ubuntu 24.04, install `libfuse2t64`, or use `./APPLICATION.AppImage --appimage-extract-and-run`. Extraction avoids the FUSE mount only; it does not bypass WebEngine sandbox requirements. Application launchers keep the sandbox enabled and do not change system security settings.
 

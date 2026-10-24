@@ -4,8 +4,8 @@
 
 | 应用 | CMake 版本字段 | Git 标签 | AppImage 文件 |
 | --- | --- | --- | --- |
-| MatterDesk | `project(MatterDesk VERSION …)` | `matterdesk-v0.6.1` | `MatterDesk-0.6.1-x86_64.AppImage` |
-| MatterCamViewer | `MATTERCAMVIEWER_VERSION` | `mattercamviewer-v2.4.1` | `MatterCamViewer-2.4.1-x86_64.AppImage` |
+| MatterDesk | `project(MatterDesk VERSION …)` | `matterdesk-v0.6.2` | `MatterDesk-0.6.2-x86_64.AppImage` |
+| MatterCamViewer | `MATTERCAMVIEWER_VERSION` | `mattercamviewer-v2.4.2` | `MatterCamViewer-2.4.2-x86_64.AppImage` |
 
 ## 验证改动
 
@@ -44,9 +44,9 @@ python3 scripts/build-appimage.py --product mattercamviewer \
 先更新对应版本字段与说明，推送并确认 CI 成功。再为已验证的提交建立对应标签，例如：
 
 ```bash
-git tag -a matterdesk-v0.6.1 -m 'MatterDesk 0.6.1'
-git tag -a mattercamviewer-v2.4.1 -m 'MatterCamViewer 2.4.1'
-git push origin matterdesk-v0.6.1 mattercamviewer-v2.4.1
+git tag -a matterdesk-v0.6.2 -m 'MatterDesk 0.6.2'
+git tag -a mattercamviewer-v2.4.2 -m 'MatterCamViewer 2.4.2'
+git push origin matterdesk-v0.6.2 mattercamviewer-v2.4.2
 ```
 
 每个标签独立触发 `Release Linux applications`。流程核对标签与产品版本，构建、测试并生成 AppImage，全部检查成功后才发布镜像与 `.sha256` 校验文件。GitHub 同时生成该标签的源码归档。发布权限只授予该任务的临时仓库 token，不需要额外保存个人访问令牌。
