@@ -188,7 +188,7 @@ def check_runtime(appdir: Path, product: str):
     env = dict(os.environ, LD_LIBRARY_PATH=str(appdir / "usr/lib"))
     for executable in [appdir / "usr/bin" / product, appdir / "usr/bin/node",
                        appdir / "usr/libexec/QtWebEngineProcess",
-                       *appdir.glob("usr/plugins/platforms/*.so"),
+                       *appdir.glob("usr/plugins/**/*.so"),
                        *appdir.glob("usr/controller/node_modules/**/*.node")]:
         result = subprocess.run(["ldd", str(executable)], env=env, text=True, capture_output=True)
         if result.returncode or "not found" in result.stdout:
@@ -196,6 +196,9 @@ def check_runtime(appdir: Path, product: str):
     for relative in ["usr/libexec/QtWebEngineProcess", "usr/resources/qtwebengine_resources.pak",
                      "usr/resources/qtwebengine_resources_100p.pak", "usr/resources/qtwebengine_resources_200p.pak",
                      "usr/translations/qtwebengine_locales/en-US.pak", "usr/plugins/platforms/libqxcb.so",
+                     "usr/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so",
+                     "usr/plugins/platforminputcontexts/libibusplatforminputcontextplugin.so",
+                     "usr/plugins/platforminputcontexts/libcomposeplatforminputcontextplugin.so",
                      "usr/bin/qt.conf", "usr/libexec/qt.conf"]:
         if not (appdir / relative).is_file():
             raise ValueError(f"Missing required WebEngine/Qt deployment resource: {relative}")
@@ -238,6 +241,12 @@ def smoke(image: Path, build_dir: Path, work: Path, source: Path, product: str, 
         if Path(matched_font).resolve() != expected_font.resolve():
             raise ValueError(f"The packaged font configuration did not select its bundled {family} font")
     run(["bash", "-c", shell, "smoke", appdir, build_dir / "tst_uifonts"], env=env, timeout=60)
+    # Use a private X display, D-Bus session and real Pinyin daemon. The probe
+    # loads its input context from this image and commits Chinese through Qt.
+    # User-facing AppRun continues to inherit the desktop's IME configuration.
+    run([sys.executable, source / "tests/run-inputmethod-smoke.py",
+         "--test-executable", build_dir / "tst_inputmethod", "--appdir", appdir],
+        env=env, timeout=120)
     run(["bash", "-c", shell, "smoke", appdir, appdir / "usr/bin/node",
          appdir / "usr/controller/bootstrap.mjs", "--help"], env=env, timeout=30)
     if (isolated / "data/matterdesk/controller").exists():
@@ -402,6 +411,10 @@ Ubuntu 24.04 x86_64 AppImage with Qt/WebEngine, Node.js 22.22.1 and pinned contr
 捆绑完整中文、DejaVu 与 Noto Symbols 字体，在解包后的 AppImage 内验证字符覆盖，修复界面图标缺字；不依赖主机安装这些字体。
 
 Bundles complete CJK, DejaVu and Noto Symbols font fallback, verified inside the extracted AppImage, to fix missing UI icons without requiring host fonts.
+
+补齐与内置 Qt 版本匹配的 Fcitx 5 输入法前端及其依赖，修复中文输入；使用隔离的真实拼音输入法验证预编辑、中文提交与焦点切换，不更改宿主输入法设置。
+
+Includes the matching Fcitx 5 Qt input context and its dependencies to fix Chinese input. An isolated real Pinyin input-method test verifies preedit, Chinese commit and focus changes without changing desktop input-method settings.
 
 下载后执行 / Run after downloading:
 

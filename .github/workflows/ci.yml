@@ -36,7 +36,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build \
             qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
-            libudev-dev libbluetooth-dev fonts-noto-cjk fonts-noto-core fonts-dejavu-core apparmor
+            libudev-dev libbluetooth-dev fonts-noto-cjk fonts-noto-core fonts-dejavu-core apparmor \
+            fcitx5-frontend-qt6 fcitx5 fcitx5-pinyin dbus dbus-x11 xvfb xauth libxtst6
       - name: Install pinned controller dependencies
         run: ./scripts/setup-controller.sh
       - name: Configure both applications
@@ -52,6 +53,11 @@ jobs:
         # CTest contains synthetic/offline suites only. Explicit live camera,
         # PTZ and other production-device probes are not invoked here.
         run: ctest --test-dir build --output-on-failure 2>&1 | tee "$RUNNER_TEMP/matterdesk-test.log"
+      - name: Test Chinese input with an isolated Fcitx Pinyin session
+        id: inputmethod
+        run: >-
+          python3 tests/run-inputmethod-smoke.py --test-executable build/tst_inputmethod
+          2>&1 | tee "$RUNNER_TEMP/matterdesk-inputmethod.log"
       - name: Check application entry points
         run: |
           ./scripts/run.sh --version
@@ -78,4 +84,7 @@ jobs:
           fi
           if [ '${{ steps.tests.outcome }}' = failure ]; then
             python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-test.log"
+          fi
+          if [ '${{ steps.inputmethod.outcome }}' = failure ]; then
+            python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-inputmethod.log"
           fi
