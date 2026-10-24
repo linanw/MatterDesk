@@ -202,6 +202,18 @@ private slots:
         auto *view = player->findChild<QWebEngineView *>("cameraVideo"); QVERIFY(view);
         auto *panels = window.findChild<QStackedWidget *>("mainPanels"); QVERIFY(panels);
         QTRY_COMPARE(playerInfo(view->page()).value("objectFit").toString(), QStringLiteral("contain"));
+        if (qEnvironmentVariable("MATTERDESK_REQUIRE_CAMERA_CODECS") == QStringLiteral("1")) {
+            const auto codecs = QJsonDocument::fromJson(evaluate(view->page(), QStringLiteral(
+                "(()=>{const codecs=k=>(globalThis.RTCRtpReceiver?.getCapabilities?.(k)?.codecs||[])"
+                ".map(c=>String(c.mimeType||'').toLowerCase());"
+                "return JSON.stringify({video:codecs('video'),audio:codecs('audio')});})()"
+            )).toString().toUtf8()).object();
+            QVERIFY2(codecs.value("video").toArray().contains(QStringLiteral("video/h264")),
+                     "Packaged WebEngine must advertise the camera's H.264 WebRTC decoder");
+            QVERIFY2(codecs.value("audio").toArray().contains(QStringLiteral("audio/opus")),
+                     "Packaged WebEngine must advertise the camera's Opus WebRTC decoder");
+            qInfo("Packaged WebRTC codec capabilities include H.264 and Opus");
+        }
         // Feed only local generated frames through the real video element.
         // Alternate aspect ratios and viewport shapes to catch stale sizing or
         // inherited cover styling; no screenshots or camera stream are used.

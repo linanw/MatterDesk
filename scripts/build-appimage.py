@@ -209,6 +209,7 @@ def smoke(image: Path, build_dir: Path, work: Path, source: Path, product: str, 
     env = dict(os.environ, HOME=str(isolated), XDG_CONFIG_HOME=str(isolated / "config"),
                XDG_CACHE_HOME=str(isolated / "cache"), XDG_DATA_HOME=str(isolated / "data"),
                XDG_STATE_HOME=str(isolated / "state"), XDG_RUNTIME_DIR=str(isolated / "runtime"),
+               MATTERDESK_REQUIRE_CAMERA_CODECS="1",
                QT_QPA_PLATFORM="offscreen", QT_SCALE_FACTOR="1", QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu")
     env.pop("QTWEBENGINE_DISABLE_SANDBOX", None)
     version_output = subprocess.check_output([appdir / "AppRun", "--version"], env=env, text=True, timeout=30)
