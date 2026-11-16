@@ -2,9 +2,11 @@
 #include "camerametadata.h"
 
 #include <QAbstractSocket>
+#include <QAuthenticator>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QMap>
+#include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSet>
 #include <QWebSocket>
@@ -85,12 +87,45 @@ void MatterClient::destroySocket() {
     old->deleteLater();
 }
 
-void MatterClient::connectToServer(QUrl url) {
-    if (!url.isValid() || (url.scheme() != "ws" && url.scheme() != "wss") || url.host().isEmpty()
-        || !url.userInfo().isEmpty() || url.hasFragment() || url.hasQuery()) {
-        emit errorOccurred(QStringLiteral("请输入有效的 ws:// 或 wss:// Matter Server 地址，例如 ws://127.0.0.1:5580/ws。"));
+QUrl MatterClient::controllerUrl(const QString &address) {
+    QUrl url(address.trimmed(), QUrl::StrictMode);
+    if (!url.isValid() || url.host().isEmpty() || url.authority(QUrl::FullyEncoded).contains('@')
+        || url.hasFragment() || url.hasQuery())
+        return {};
+    if (url.scheme() == "https") {
+        if (!url.path().isEmpty() && url.path() != "/" && url.path() != "/ws") return {};
+        url.setScheme("wss");
+    }
+    if (url.scheme() != "ws" && url.scheme() != "wss") return {};
+    if (url.path().isEmpty() || url.path() == "/") url.setPath("/ws");
+    return url;
+}
+
+void MatterClient::connectToServer(QUrl url, const QString &username, const QString &password) {
+    url = controllerUrl(url.toString(QUrl::FullyEncoded));
+    if (url.isEmpty()) {
+        emit errorOccurred(QStringLiteral("请输入 HTTPS、ws:// 或 wss:// Matter Server 地址（不含用户名密码）。"));
         return;
     }
+    QByteArray authorization;
+    if (!username.isEmpty() || !password.isEmpty()) {
+        if (url.scheme() != "wss") {
+            emit errorOccurred(QStringLiteral("NAS 登录只支持使用有效证书的 HTTPS/WSS 连接。"));
+            return;
+        }
+        static const QRegularExpression controlCharacters(QStringLiteral("[\\x00-\\x1F\\x7F]"));
+        if (username.isEmpty() || password.isEmpty() || username.contains(':')
+            || username.contains(controlCharacters) || password.contains(controlCharacters)
+            || username.toUtf8().size() > 255 || password.toUtf8().size() > 1024) {
+            emit errorOccurred(QStringLiteral("请输入有效的 NAS 用户名和密码。"));
+            return;
+        }
+        authorization = QByteArrayLiteral("Basic ") + (username + ':' + password).toUtf8().toBase64();
+    }
+    beginConnection(std::move(url), std::move(authorization));
+}
+
+void MatterClient::beginConnection(QUrl url, QByteArray authorization) {
     m_wantConnection = false;
     m_reconnect.stop();
     destroySocket();
@@ -101,6 +136,7 @@ void MatterClient::connectToServer(QUrl url) {
     m_demo = false;
     m_nodes = {}; m_info = {};
     m_url = url;
+    m_authorization = std::move(authorization);
     m_retries = 0;
     m_wantConnection = true;
     emit devicesChanged(); emit serverInfoChanged();
@@ -109,6 +145,7 @@ void MatterClient::connectToServer(QUrl url) {
 
 void MatterClient::disconnectFromServer() {
     m_wantConnection = false;
+    m_authorization.clear();
     m_reconnect.stop();
     destroySocket();
     failPending(QStringLiteral("连接已断开"));
@@ -162,9 +199,28 @@ void MatterClient::openSocket() {
 #else
     const auto errorSignal = QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error);
 #endif
-    connect(socket, errorSignal, this, [this, socket](QAbstractSocket::SocketError) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    // Credentials were sent in the original request. Never submit them again
+    // in response to a challenge; newer Qt omits 401 from its error string.
+    connect(socket, &QWebSocket::authenticationRequired, this, [socket](QAuthenticator *) {
+        socket->setProperty("controllerAuthenticationRejected", true);
+    });
+#endif
+    connect(socket, errorSignal, this, [this, socket](QAbstractSocket::SocketError error) {
         if (socket != m_socket) return;
-        const auto detail = sanitized(socket->errorString());
+        // A rejected Upgrade cannot be repaired by retrying the same secret.
+        static const QRegularExpression denied(QStringLiteral("\\b(?:401|403)\\s*\\("));
+        if (!m_ready && m_url.scheme() == "wss" && (socket->property("controllerAuthenticationRejected").toBool()
+                || denied.match(socket->errorString()).hasMatch())) {
+            disconnectFromServer();
+            emit errorOccurred(QStringLiteral("NAS 拒绝连接。请检查登录信息和服务器访问设置后重新连接。"));
+            return;
+        }
+        const auto detail = error == QAbstractSocket::SslHandshakeFailedError
+            ? QStringLiteral("TLS 握手失败，请检查服务器证书与主机名。")
+            : m_authorization.isEmpty() ? sanitized(socket->errorString())
+            // A remote HTTP reason phrase or bad response header can echo a secret.
+            : QStringLiteral("无法与需要身份验证的 MatterServer 建立安全连接。");
         emit errorOccurred(QStringLiteral("连接失败：%1").arg(detail));
         if (socket->state() == QAbstractSocket::UnconnectedState) scheduleReconnect();
     });
@@ -173,7 +229,9 @@ void MatterClient::openSocket() {
     });
     setStatus(m_retries ? QStringLiteral("正在重新连接…") : QStringLiteral("正在连接…"));
     m_handshake.start(15000);
-    socket->open(m_url);
+    QNetworkRequest request(m_url);
+    if (!m_authorization.isEmpty()) request.setRawHeader("Authorization", m_authorization);
+    socket->open(request);
 }
 
 void MatterClient::scheduleReconnect() {
@@ -197,6 +255,11 @@ QList<MatterDevice> MatterClient::devices() const {
 }
 
 QString MatterClient::sanitized(QString value) const {
+    if (!m_authorization.isEmpty()) {
+        const auto hidden = QStringLiteral("[NAS 登录已隐藏]");
+        value.replace(QString::fromLatin1(m_authorization), hidden);
+        value.replace(QString::fromLatin1(m_authorization.mid(6)), hidden);
+    }
     for (const auto &secret : m_secrets) value.replace(secret, QStringLiteral("[配对码已隐藏]"));
     // Error text from a remote server must not accidentally expose onboarding codes.
     value.replace(QRegularExpression(QStringLiteral("MT:[A-Za-z0-9.\\-:+/]+")), QStringLiteral("[配对码已隐藏]"));
@@ -524,7 +587,7 @@ void MatterClient::handleEvent(const QJsonObject &message) {
             // Cached endpoint IDs and pending media sessions then belong to the
             // old Fabric. Reconnect before exposing any part of the new context.
             emit logMessage(QStringLiteral("控制器 Fabric 已改变，重新连接并同步设备。"));
-            connectToServer(m_url);
+            beginConnection(m_url, m_authorization);
             return;
         }
         for (auto it = updated.begin(); it != updated.end(); ++it) {

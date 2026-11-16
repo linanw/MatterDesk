@@ -30,6 +30,7 @@ public:
     HomeStore *home() { return m_home; }
     TuyaMetadataManager *tuyaMetadata() { return m_tuyaMetadata; }
     void setServerUrl(const QString &url);
+    void connectToController(const QString &address);
     void startDemo();
 protected:
     bool event(QEvent *event) override;

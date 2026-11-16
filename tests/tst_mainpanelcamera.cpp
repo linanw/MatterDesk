@@ -29,6 +29,7 @@
 #include <QWebEngineView>
 #include <QWebSocket>
 #include <QWebSocketServer>
+#include <QWindow>
 #include <QtTest>
 #include <memory>
 
@@ -139,6 +140,37 @@ DeviceCard *cameraCard(MainWindow &window) {
     for (auto *card : window.findChildren<DeviceCard *>()) if (card->device().hasCamera) return card;
     return nullptr;
 }
+struct TopLevelGeometry {
+    QString stage;
+    QPoint position;
+    QSize size;
+    QRect frame;
+    bool maximized;
+    quintptr handle;
+    WId nativeId;
+};
+TopLevelGeometry topLevelGeometry(MainWindow &window, const QString &stage) {
+    TopLevelGeometry result{stage, window.pos(), window.size(), window.frameGeometry(), window.isMaximized(),
+        reinterpret_cast<quintptr>(window.windowHandle()), window.internalWinId()};
+    qInfo().noquote() << "Top-level geometry:" << stage << "position" << result.position << "size" << result.size
+        << "frame" << result.frame << "maximized" << result.maximized
+        << "QWindow" << QString::number(result.handle, 16) << "nativeId" << QString::number(result.nativeId, 16);
+    return result;
+}
+class TopLevelGeometryTrace : public QObject {
+public:
+    explicit TopLevelGeometryTrace(MainWindow &window) : m_window(window) { window.installEventFilter(this); }
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override {
+        if (object == &m_window && (event->type() == QEvent::Move || event->type() == QEvent::Resize
+            || event->type() == QEvent::WinIdChange || event->type() == QEvent::WindowStateChange
+            || event->type() == QEvent::PlatformSurface))
+            topLevelGeometry(m_window, QStringLiteral("event-%1").arg(int(event->type())));
+        return false;
+    }
+private:
+    MainWindow &m_window;
+};
 }
 
 class MainPanelCameraTest : public QObject {
@@ -160,6 +192,78 @@ private slots:
     void cleanupTestCase() {
         QSettings().clear();
         if (QDir(m_appData).exists()) QVERIFY(QDir(m_appData).removeRecursively());
+    }
+
+    // This must remain the first real test: the first QWebEngineView can
+    // switch texture composition and recreate the top-level surface. An
+    // already initialized WebEngine hides that
+    // first-open path, so exercise it before any other camera test.
+    void openingEmbeddedCameraPreservesTopLevelGeometry_data() {
+        QTest::addColumn<bool>("maximized");
+        QTest::newRow("normal-window") << false;
+        QTest::newRow("maximized-window") << true;
+    }
+    void openingEmbeddedCameraPreservesTopLevelGeometry() {
+        QFETCH(bool, maximized);
+        if (maximized && QGuiApplication::platformName() != QStringLiteral("xcb"))
+            QSKIP("Maximized native-window regression requires an X11 window manager; run under private Xvfb + Openbox");
+        PanelFixture fixture;
+        MainWindow window;
+        TopLevelGeometryTrace trace(window);
+        connectFixture(window, fixture);
+        window.resize(1100, 760);
+        window.show();
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        window.move(240, 160);
+        QTRY_COMPARE(window.pos(), QPoint(240, 160));
+        if (maximized) {
+            window.showMaximized();
+            QTRY_VERIFY(window.isMaximized());
+        }
+        auto *cameraNav = navigation(window, "camera"); QVERIFY(cameraNav);
+        QTest::mouseClick(cameraNav, Qt::LeftButton);
+        auto *card = cameraCard(window); QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+        auto *snapshot = card->findChild<QAbstractButton *>("cameraSnapshot"); QVERIFY(snapshot);
+        QTest::qWait(300); // Let initial WM decoration/layout requests settle.
+        const auto before = topLevelGeometry(window, QStringLiteral("before-first-camera"));
+        QVERIFY(before.nativeId != 0);
+        QVERIFY(window.windowHandle());
+        QPointer<QWindow> nativeWindow(window.windowHandle());
+        if (!maximized) QVERIFY(before.position.x() > 0 && before.position.y() > 0);
+        QList<TopLevelGeometry> checkpoints;
+        for (int opening = 1; opening <= 2; ++opening) {
+            QTest::mouseClick(snapshot, Qt::LeftButton);
+            checkpoints.append(topLevelGeometry(window, QStringLiteral("open-%1-synchronous").arg(opening)));
+            QTRY_COMPARE_WITH_TIMEOUT(fixture.count("camera_start_stream"), opening, 15000);
+            QPointer<CameraWindow> player(window.findChild<CameraWindow *>("mainCameraPlayer")); QVERIFY(player);
+            auto *view = player->findChild<QWebEngineView *>("cameraVideo"); QVERIFY(view);
+            QTRY_VERIFY_WITH_TIMEOUT(!playerInfo(view->page()).isEmpty(), 10000);
+            QTest::qWait(300);
+            checkpoints.append(topLevelGeometry(window, QStringLiteral("open-%1-asynchronous-ready").arg(opening)));
+            auto *back = player->findChild<QPushButton *>("cameraBackButton"); QVERIFY(back);
+            QTest::mouseClick(back, Qt::LeftButton);
+            QTRY_VERIFY_WITH_TIMEOUT(player.isNull(), 5000);
+            QTRY_VERIFY(card->isVisible());
+            QTest::qWait(100);
+            checkpoints.append(topLevelGeometry(window, QStringLiteral("return-%1").arg(opening)));
+        }
+        QTRY_COMPARE(fixture.count("camera_stop_stream"), 2);
+        QTRY_COMPARE(fixture.count("camera_release_stream"), 4);
+        QVERIFY(fixture.activeKeys.isEmpty());
+        window.client()->disconnectFromServer();
+        // Check at the end so a failing first-open build still leaves a full
+        // first-open/return/reopen trace for diagnosis.
+        for (const auto &current : checkpoints) {
+            QVERIFY2(current.position == before.position, qPrintable(current.stage + QStringLiteral(": main window moved")));
+            QVERIFY2(current.size == before.size, qPrintable(current.stage + QStringLiteral(": main window resized")));
+            QVERIFY2(current.frame == before.frame, qPrintable(current.stage + QStringLiteral(": window-manager frame changed")));
+            QVERIFY2(current.maximized == before.maximized, qPrintable(current.stage + QStringLiteral(": maximized state changed")));
+            QVERIFY2(current.handle == before.handle, qPrintable(current.stage + QStringLiteral(": QWindow was replaced")));
+            QVERIFY2(current.nativeId == before.nativeId, qPrintable(current.stage + QStringLiteral(": native window ID was replaced")));
+        }
+        QVERIFY(nativeWindow);
     }
 
     void snapshotOpensInRightPanelAndReturnPreservesDashboard() {

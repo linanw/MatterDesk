@@ -1,87 +1,49 @@
-# 发布 MatterDesk 与 MatterCamViewer
+# 发布 MatterDesk
 
-同一个仓库维护公共协议、播放器和控制器模型，两个应用独立编号、打包和发布。
+**一个 MatterDesk 标签，两个客户端，同一个版本。** `matterdesk-vX.Y.Z` 拉起独立的 Linux、HarmonyOS 与 NAS/Web 任务。三个任务成功且各自的校验文件通过检查后，才创建一个 GitHub Release。
 
-| 应用 | CMake 基础版本 / 预发布字段 | 本次测试版 Git 标签 | AppImage 文件 |
-| --- | --- | --- | --- |
-| MatterDesk | `project(MatterDesk VERSION 0.7.0)` / `MATTERDESK_PRERELEASE "beta.1"` | `matterdesk-v0.7.0-beta.1` | `MatterDesk-0.7.0-beta.1-x86_64.AppImage` |
-| MatterCamViewer | `MATTERCAMVIEWER_VERSION 2.5.0` / `MATTERCAMVIEWER_PRERELEASE "beta.1"` | `mattercamviewer-v2.5.0-beta.1` | `MatterCamViewer-2.5.0-beta.1-x86_64.AppImage` |
+| 附件 | 内容 |
+| --- | --- |
+| `MatterDesk-X.Y.Z-x86_64.AppImage` | Linux Qt 客户端；包含本地控制器和运行依赖 |
+| `MatterDesk-X.Y.Z-harmony.hap` | HarmonyOS 6 / API 26 客户端，使用保护环境的正式签名 |
+| `MatterServer-X.Y.Z-nas.zip` | Docker Compose、固定版本控制器和预构建 Web App；没有凭据或 Fabric 数据 |
 
-CMake 的数值版本保持 `major.minor.patch`；对应 `*_PRERELEASE` 只接受空字符串或 `alpha.N`、`beta.N`、`rc.N`（N 从 1 开始）。CMake 将完整版本传给应用的 `--version`，打包脚本读取相同字段，因此应用、镜像文件名与标签中的版本必须完全一致。正式发布时将对应的预发布字段改为 `""`，保留 `matterdesk-vX.Y.Z` / `mattercamviewer-vX.Y.Z` 标签规范。不要将预发布仅标在文件名或 Release 标题中。
+每个附件都有独立的 `.sha256`。HarmonyOS 的签名和发布渠道决定哪些真机允许安装；GitHub Release 不会自动提交华为 AppGallery 审核。MatterCamViewer 是另一款 Linux 极简摄像头工具，保留自己的 `mattercamviewer-vX.Y.Z` 标签与 AppImage，发布它不会改变 MatterDesk 两端的版本。
 
-## 验证改动
+## 版本与预发布
 
-推送 `main` 或向 `main` 提交 PR 会运行 `Build and test`：安装锁定的控制器依赖，构建两个应用，执行全部离线测试，并检查启动入口、安装文件和图标。合成摄像头、随机回环端口与隔离的用户数据目录用于测试；不会访问真实家庭控制器或云账户。
+- 在 `CMakeLists.txt` 更新 `project(MatterDesk VERSION …)` / `MATTERDESK_PRERELEASE`，并将 `MATTERDESK_HARMONY_VERSION_CODE` 递增。Harmony 构建使用这个整数（用于系统升级判断）及与 Linux 一致的完整版本；原来独立 Harmony 项目的基线为 `1000002`。
+- 将预发布字段设为空字符串表示正式版，或设为 `alpha.N`、`beta.N`、`rc.N`。例如本次整合候选是 `0.7.0-beta.2`，标签为 `matterdesk-v0.7.0-beta.2`。预发布不替换正式版的 latest。
+- 合并到 `main` 并验证 CI 后，给已经通过的提交创建新标签；不要移动已发布标签。正式 MatterDesk 必须来自 `main` 历史。
 
-AppImage 基线为 Ubuntu 24.04 x86_64。发布流程另外捆绑对应 Qt / WebEngine、Node.js 22、控制器生产依赖及中文、拉丁与符号字体。工具的下载地址与 SHA-256 固定在 `scripts/build-appimage.py`，实际依赖和许可证清单随镜像保存。
+## 配置 HarmonyOS 构建与签名
 
-## 先验证 AppImage
+1. 为仓库准备一台受控 Linux x86_64 runner，标签为 `harmony-api26`。安装 [DevEco Studio CLI / HarmonyOS SDK API 26](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ide-command-line-building-app/)、Node/OHPM、Hvigor、JDK、Python 3 和 OpenSSL。默认 DevEco 路径 `/opt/devecostudio`；不同路径通过 runner 的 `DEVECO_STUDIO_HOME`、`DEVECO_SDK_HOME`、`JAVA_HOME` 和 `PATH` 配置。此 runner 只用于审核过的发布标签；公开 PR 在 GitHub 托管 runner 执行，无签名权限。
+2. 建立 GitHub Environment `harmony-release`，限制允许发布的 `matterdesk-v*` 标签和发布人员。在环境的 Secrets 添加 `HARMONY_KEYSTORE_B64`（`.p12`）、`HARMONY_CERT_B64`（证书链）、`HARMONY_PROFILE_B64`（`.p7b`）、`HARMONY_KEY_ALIAS`、`HARMONY_KEY_PASSWORD`、`HARMONY_KEYSTORE_PASSWORD`。前三项填各文件的 base64。使用对应 `com.matterdesk.harmony` 的 release profile 和合法发行签名，不使用个人调试证书；通过 GitHub Secret 设置，避免复制到命令行、聊天或源码。
+3. 检查签名和 runner 都已配置，再设置仓库变量 `HARMONY_RELEASE_READY=true`。缺少前置配置时，发布流程直接报错。签名步骤不上传密钥、证书资料、profile 或未签名中间件，只上传经验证的 HAP 与校验文件。
 
-在 GitHub **Actions → Release Linux applications → Run workflow** 中选择需要验证的分支（可以是功能分支）和产品。手动运行会构建两个应用并执行完整离线回归，再打包、烟测所选产品；不会创建标签或 GitHub Release。
+## 发布前验证
 
-也可以指定已推送的分支与产品运行：
-
-```bash
-gh workflow run release.yml --ref <branch> --field product=matterdesk
-gh workflow run release.yml --ref <branch> --field product=mattercamviewer
-```
-
-成功后在该运行的 **Summary → Artifacts** 下载候选包；运行摘要也提供直接链接。产物保留 14 天，包含 `.AppImage`、对应 `.sha256`、中英文发布说明和 `release-info.json`（完整版本、实际源码提交、SHA-256 与烟测状态）。两个产品需要分别运行。手动候选包中的源码链接指向实际构建提交，之后即使分支继续更新也可追溯。Actions 下载通常需要登录 GitHub；需要长期公开下载时使用下面的标签预发布流程。
-
-下载并解压 Actions 的产物压缩包后，在镜像与校验文件所在目录执行：
+向 `main` 提交 PR，运行 Linux 构建、离线回归、真实 X11 窗口位置、真实 Fcitx 拼音、Web 用例与隔离 Compose 烟测。可在 GitHub Actions 手动执行 **Release MatterDesk platforms** 选择产品并生成托管 Linux 候选。选择 MatterDesk 时也会生成 NAS 部署包；手动候选不使用签名凭据，不创建 GitHub Release。Harmony 的无签名候选可本地构建：
 
 ```bash
-sha256sum -c MatterDesk-0.7.0-beta.1-x86_64.AppImage.sha256
-chmod +x MatterDesk-0.7.0-beta.1-x86_64.AppImage
-./MatterDesk-0.7.0-beta.1-x86_64.AppImage
+MATTERDESK_HARMONY_VERSION=0.7.0-beta.2 \
+MATTERDESK_HARMONY_VERSION_CODE=1000003 \
+MATTERDESK_HARMONY_BUILD_MODE=release \
+  bash apps/harmony/build-unsigned.sh dist/harmony-check
+python3 scripts/sign-harmony-release.py --check-only \
+  --hap dist/harmony-check/MatterDesk-unsigned.hap \
+  --version 0.7.0-beta.2 --version-code 1000003 --output-dir dist
+python3 scripts/package-nas.py --output-dir dist
 ```
 
-MatterCamViewer 使用它自己的文件名。没有可用 FUSE 时，可用 `APPIMAGE_EXTRACT_AND_RUN=1 ./<文件名>.AppImage`。这仍需主机允许 WebEngine renderer 的用户命名空间。
+AppImage 发布使用 Ubuntu 24.04 x86_64 环境，并解包检查中文/符号字体、Fcitx、摄像头播放器和控制器。不绕过沙箱或证书验证。各套测试用临时目录和合成数据，不接触真实家庭设备；Harmony 真机和真实摄像头仍需安装后验收。
 
-构建脚本会检查包内共享库与 WebEngine 资源，解包最终 AppImage 并验证：
-
-- 应用名称与版本输出。
-- 使用随机、未监听的回环端口启动界面并自动退出。
-- 使用包内中文、拉丁与符号字体、Node 与控制器入口。
-- 使用实际 Qt 字形排版检查界面符号、中文与单位；缺字或使用包外字形时发布失败。
-- 使用包内 WebEngine 启动真实 renderer，并解码合成横屏、竖屏视频。
-
-应用沙箱默认保持开启。GitHub 临时 runner 的 AppArmor 例外仅用于测试路径，并在任务结束时移除；它们不进入 AppImage。流程不会用跳过测试或关闭沙箱来生成候选包。离线回归与烟测不代表真实家庭设备、云写入或视频流已完成物理验证。
-
-本地也可以在安装构建依赖后运行：
+确认前置条件后，从已验证的 `main` 提交创建版本标签，例如：
 
 ```bash
-./scripts/setup-controller.sh
-./scripts/build.sh
-ctest --test-dir build --output-on-failure
-python3 scripts/build-appimage.py --product mattercamviewer \
-  --build-dir build --output-dir dist
+git tag -a matterdesk-v0.7.0-beta.2 -m 'MatterDesk 0.7.0-beta.2'
+git push origin matterdesk-v0.7.0-beta.2
 ```
 
-本地生成的镜像以该机器的 Qt 和系统库为基础。正式 Release 使用 GitHub 的 Ubuntu 24.04 构建环境。
-
-## 发布预发布或正式版本
-
-先更新对应版本字段与说明，推送并确认 CI 成功。再为已验证的提交建立对应标签，例如：
-
-```bash
-git tag -a matterdesk-v0.7.0-beta.1 -m 'MatterDesk 0.7.0-beta.1'
-git tag -a mattercamviewer-v2.5.0-beta.1 -m 'MatterCamViewer 2.5.0-beta.1'
-git push origin matterdesk-v0.7.0-beta.1 mattercamviewer-v2.5.0-beta.1
-```
-
-每个标签独立触发 `Release Linux applications`。流程先核对标签与产品完整版本，构建、测试并生成 AppImage，全部检查成功且保存候选产物后才发布镜像与 `.sha256` 校验文件。GitHub 同时生成该标签的源码归档。发布权限只授予该任务的临时仓库 token，不需要额外保存个人访问令牌。
-
-带预发布字段的标签使用 `gh release create --prerelease --latest=false`，页面明确显示 **Pre-release**，不会替换现有正式版的 latest。正式 MatterDesk 发布仍设为仓库 latest；正式 MatterCamViewer 发布通过自己的标签链接访问，不占用仓库 latest。
-
-已发布标签应保留原提交。修复后递增对应应用版本并建立新标签，旧版本可继续下载。
-
-## 用户数据
-
-镜像与源码归档不包含 Fabric、配对密钥、云账户、真实摄像头图片或用户配置。应用升级继续使用镜像外的现有控制器数据目录：
-
-```text
-${XDG_DATA_HOME:-$HOME/.local/share}/matterdesk/controller
-```
-
-`MATTERDESK_DATA_DIR` 可选择既有目录。不要在打包、升级或版本切换时删除它。
+确认 GitHub Release 同时列出三类附件和校验文件。在安静时段独立更新 NAS 服务；发布工作流不连接 NAS，也不替换生产控制器。原 Fabric 始终留在宿主卷或旧控制器数据目录。更新与备份见 [NAS 部署说明](../deploy/README.md)。

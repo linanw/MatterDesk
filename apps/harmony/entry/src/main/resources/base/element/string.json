@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "控制 Matter 配件"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "控制 Matter 配件"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "MatterDesk"
+    }
+  ]
+}

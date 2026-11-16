@@ -21,6 +21,14 @@ MatterDesk / MatterCamViewer → OHF Matter Server → Matter device or bridge
 
 The **0.7.0-beta.1 / 2.5.0-beta.1** test channel adds the [Tuya metadata service integration](docs/TUYA_METADATA_SYNC.md). With server writes enabled, PaaS supports device-name and room-name updates; Custom supports device names only. Device movement remains disabled. Beta artifacts are being prepared; use the matching pre-release only after its files appear. Stable 0.6.2 / 2.4.2 remain a separate channel and do not include this integration.
 
+## Linux、HarmonyOS 和 NAS Web
+
+这个仓库维护 Linux MatterDesk、[HarmonyOS MatterDesk（MatterHarmony）](apps/harmony/README.md) 和 NAS 上的 MatterServer Web App。Harmony 默认使用 NAS 的同一套 Web 界面；Linux 保留原生 Qt 界面、既有摄像头能力与本地连接。三者能连接同一控制器，复用已有配对和设备状态。[用例与平台差异](docs/PLATFORMS.md)
+
+MatterServer 可用 [Docker Compose 独立部署](deploy/README.md)。Web 和 Harmony 打开 `https://matter.linanw.me/`；Linux 在「控制器与日志」选择「连接 NAS」，或传入 `--server https://matter.linanw.me` 后登录。独立部署所需的反向代理、证书、凭据以及 Fabric 备份方式见部署文档。
+
+新的 MatterDesk 版本将在同一 GitHub Release 提供 **Linux AppImage、已签名 HarmonyOS HAP、MatterServer NAS 部署包**，从同一个标签构建。签名或 NAS 测试未通过时，不会发布不完整的 MatterDesk 版本。MatterCamViewer 继续独立发布 Linux AppImage。[发布指南](docs/RELEASING.md)
+
 ## 下载与运行 AppImage
 
 在 [GitHub Releases](https://github.com/linanw/MatterDesk/releases) 下载对应应用，无需另外安装 Qt、Node.js 或 npm：

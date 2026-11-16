@@ -75,8 +75,14 @@ def release_identity(source_root: Path, product: str) -> dict:
     source_ref = tag if tagged else os.environ.get("GITHUB_SHA", "")
     if not source_ref:
         source_ref = subprocess.check_output(["git", "-C", source_root, "rev-parse", "HEAD"], text=True).strip()
-    return {"product": product, "name": info["name"], "version": version,
-            "tag": tag, "prerelease": bool(suffix), "sourceRef": source_ref}
+    identity = {"product": product, "name": info["name"], "version": version,
+                "tag": tag, "prerelease": bool(suffix), "sourceRef": source_ref}
+    if product == "matterdesk":
+        code = re.search(r"^set\(MATTERDESK_HARMONY_VERSION_CODE ([1-9][0-9]*)\)$", cmake, re.MULTILINE)
+        if not code or not 1 <= int(code.group(1)) <= 2147483647:
+            raise ValueError("Declare a positive MATTERDESK_HARMONY_VERSION_CODE in CMakeLists.txt")
+        identity["harmonyVersionCode"] = int(code.group(1))
+    return identity
 
 
 def copy_file(source: Path, destination: Path, executable: bool = False) -> None:

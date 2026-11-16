@@ -1,0 +1,9 @@
+# Only ship the pinned controller and its entrypoint into the image build context.
+**
+!controller/
+!controller/package.json
+!controller/package-lock.json
+!controller/*.mjs
+!deploy/
+!deploy/Dockerfile
+!deploy/controller-entrypoint.sh

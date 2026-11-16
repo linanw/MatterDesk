@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    # Keep Matter multicast and IPv6 on the NAS LAN. The HTTP/WS API still binds loopback.
+    network_mode: host
+    environment:
+      MATTERDESK_CONTROLLER_PORT: ${MATTERDESK_CONTROLLER_PORT:-5580}
+      MATTER_INTERFACE: ${MATTER_INTERFACE:-}
+    volumes:
+      - fabric:/var/lib/matterdesk
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://127.0.0.1:" + process.env.MATTERDESK_CONTROLLER_PORT + "/health", {signal: AbortSignal.timeout(2000)}).then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1));']
+      start_period: 15s
+      interval: 20s
+      timeout: 3s
+      retries: 3
+
+  gateway:
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    network_mode: host
+    environment:
+      MATTERDESK_SITE_ADDRESS: http://:${MATTERDESK_PROXY_PORT:-18081}
+      MATTERDESK_BIND_ADDRESS: '127.0.0.1'
+      MATTERDESK_PUBLIC_ORIGIN: https://${MATTERDESK_PUBLIC_HOST:-matter.linanw.me}
+      MATTERDESK_UPSTREAM: 127.0.0.1:${MATTERDESK_CONTROLLER_PORT:-5580}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${MATTERDESK_USERS_FILE:-./secrets/users.caddy}:/run/secrets/matterdesk-users:ro
+      - ${MATTERDESK_WEB_DIST:-../web/dist}:/srv/matterdesk:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [controller]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    # Gateway reads the host user's mode-0600 bcrypt file through a readonly mount.
+    cap_add: [DAC_READ_SEARCH, NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
+volumes:
+  fabric:
+  caddy_data:
+  caddy_config:

@@ -1,10 +1,10 @@
-name: Release Linux applications
+name: Release MatterDesk platforms
 
 on:
   workflow_dispatch:
     inputs:
       product:
-        description: Application to build, smoke-test and upload (without publishing)
+        description: Build Linux and any NAS candidate (without publishing)
         required: true
         type: choice
         default: mattercamviewer
@@ -24,11 +24,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  identify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    permissions:
-      contents: write
+    outputs:
+      product: ${{ steps.application.outputs.product }}
+      version: ${{ steps.version.outputs.version }}
+      harmony-version-code: ${{ steps.version.outputs.harmony-version-code }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,25 +62,54 @@ jobs:
         id: version
         env:
           PRODUCT: ${{ steps.application.outputs.product }}
+          HARMONY_RELEASE_READY: ${{ vars.HARMONY_RELEASE_READY }}
         run: |
           python3 - <<'PY'
-          import importlib.util, json, os
+          import importlib.util, json, os, re, subprocess
           from pathlib import Path
           spec = importlib.util.spec_from_file_location("release_package", "scripts/package-release.py")
           package = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(package)
           release = package.release_identity(Path.cwd(), os.environ["PRODUCT"])
+          if os.environ["GITHUB_REF_TYPE"] == "tag" and release["product"] == "matterdesk":
+              if os.environ.get("HARMONY_RELEASE_READY") != "true":
+                  raise SystemExit("Configure the protected Harmony signing environment and API 26 runner first; a Linux-only MatterDesk release is disabled")
+              subprocess.run(["git", "merge-base", "--is-ancestor", "HEAD", "origin/main"], check=True)
+              previous = 1000002  # Last standalone Harmony version code before the monorepo.
+              for tag in subprocess.check_output(["git", "tag", "--list", "matterdesk-v*"], text=True).splitlines():
+                  if tag == release["tag"]:
+                      continue
+                  config = subprocess.check_output(["git", "show", f"{tag}:CMakeLists.txt"], text=True)
+                  match = re.search(r"^set\(MATTERDESK_HARMONY_VERSION_CODE (\d+)\)$", config, re.MULTILINE)
+                  if match:
+                      previous = max(previous, int(match.group(1)))
+              if release["harmonyVersionCode"] <= previous:
+                  raise SystemExit("Increase MATTERDESK_HARMONY_VERSION_CODE for each release")
           print(json.dumps(release))
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("version=" + release["version"] + "\n")
+              output.write("harmony-version-code=" + str(release.get("harmonyVersionCode", "")) + "\n")
+              output.write("prerelease=" + str(release["prerelease"]).lower() + "\n")
           PY
+  linux:
+    needs: identify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
       - name: Install Qt and build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config binutils \
             qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
             qt6-svg-dev xvfb fonts-noto-cjk fonts-noto-core fonts-dejavu-core fontconfig apparmor \
-            fcitx5-frontend-qt6 fcitx5 fcitx5-pinyin dbus dbus-x11 xauth libxtst6
+            fcitx5-frontend-qt6 fcitx5 fcitx5-pinyin dbus dbus-x11 xauth libxtst6 openbox openssl
       - name: Install pinned controller dependencies
         run: npm ci --prefix controller --no-audit --no-fund
       - name: Configure Release build
@@ -97,9 +128,11 @@ jobs:
         run: xvfb-run -a ctest --test-dir build --output-on-failure --parallel 2
       - name: Test Chinese input with an isolated Fcitx Pinyin session
         run: python3 tests/run-inputmethod-smoke.py --test-executable build/tst_inputmethod
+      - name: Test first live view with a private X11 window manager
+        run: python3 tests/run-window-geometry-smoke.py --test-executable build/tst_mainpanelcamera
       - name: Build and smoke-test selected AppImage
         env:
-          PRODUCT: ${{ steps.application.outputs.product }}
+          PRODUCT: ${{ needs.identify.outputs.product }}
         run: |
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           python3 scripts/build-appimage.py --product "$PRODUCT" --build-dir build \
@@ -109,13 +142,14 @@ jobs:
         id: candidate
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.application.outputs.product }}-${{ steps.version.outputs.version }}-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          name: linux-${{ github.run_id }}
           path: |
             dist/*.AppImage
             dist/*.AppImage.sha256
             dist/*-release-notes.md
             release-info.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
           compression-level: 0
       - name: Link tested candidate in run summary
@@ -131,28 +165,135 @@ jobs:
               summary.write(f"[Download tested Linux candidate]({os.environ['CANDIDATE_URL']}) (14-day retention).\n\n")
               summary.write(f"Source: `{os.environ['GITHUB_SHA']}` · AppImage smoke: `{release['smoke']}`.\n")
           PY
-      - name: Publish versioned application release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PRODUCT: ${{ steps.application.outputs.product }}
-        shell: bash
-        run: |
-          image="$(python3 -c 'import json; print(json.load(open("release-info.json"))["appimage"])')"
-          checksum="$(python3 -c 'import json; print(json.load(open("release-info.json"))["checksum"])')"
-          notes="$(python3 -c 'import json; print(json.load(open("release-info.json"))["notes"])')"
-          title="$(python3 -c 'import json; x=json.load(open("release-info.json")); print(x["name"]+" "+x["version"])')"
-          prerelease="$(python3 -c 'import json; print(str(json.load(open("release-info.json"))["prerelease"]).lower())')"
-          release_args=()
-          latest=false
-          if [[ "$prerelease" == true ]]; then
-            release_args+=(--prerelease)
-          elif [[ "$PRODUCT" == matterdesk ]]; then
-            latest=true
-          fi
-          gh release create "$GITHUB_REF_NAME" "dist/$image" "dist/$checksum" \
-            --verify-tag --title "$title" --notes-file "dist/$notes" --latest="$latest" "${release_args[@]}"
       - name: Remove temporary runner-only sandbox profiles
         if: always()
         run: ./scripts/prepare-ci-webengine-sandbox.sh --cleanup
+  harmony:
+    needs: identify
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/matterdesk-v') && needs.identify.outputs.product == 'matterdesk'
+    # Repository-owned, isolated Linux runner with the vendor SDK installed.
+    # Never run pull_request or arbitrary branch builds on this signing runner.
+    runs-on: [self-hosted, linux, x64, harmony-api26]
+    environment: harmony-release
+    timeout-minutes: 35
+    env:
+      MATTERDESK_HARMONY_VERSION: ${{ needs.identify.outputs.version }}
+      MATTERDESK_HARMONY_VERSION_CODE: ${{ needs.identify.outputs.harmony-version-code }}
+      MATTERDESK_HARMONY_BUILD_MODE: release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Compile production ArkTS and pack unsigned Harmony HAP
+        run: bash apps/harmony/build-unsigned.sh "$RUNNER_TEMP/matterdesk-unsigned"
+      - name: Sign and verify the release HAP
+        env:
+          HARMONY_KEYSTORE_B64: ${{ secrets.HARMONY_KEYSTORE_B64 }}
+          HARMONY_CERT_B64: ${{ secrets.HARMONY_CERT_B64 }}
+          HARMONY_PROFILE_B64: ${{ secrets.HARMONY_PROFILE_B64 }}
+          HARMONY_KEY_ALIAS: ${{ secrets.HARMONY_KEY_ALIAS }}
+          HARMONY_KEY_PASSWORD: ${{ secrets.HARMONY_KEY_PASSWORD }}
+          HARMONY_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_KEYSTORE_PASSWORD }}
+        run: |
+          python3 scripts/sign-harmony-release.py --hap "$RUNNER_TEMP/matterdesk-unsigned/MatterDesk-unsigned.hap" \
+            --version "$MATTERDESK_HARMONY_VERSION" --version-code "$MATTERDESK_HARMONY_VERSION_CODE" --output-dir dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: harmony-${{ github.run_id }}
+          path: |
+            dist/*.hap
+            dist/*.hap.sha256
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+  server:
+    needs: identify
+    if: needs.identify.outputs.product == 'matterdesk'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Test the shared Web interface and protocol
+        run: npm --prefix web test
+      - name: Build the NAS bundle and test an isolated Compose deployment
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          python3 scripts/package-nas.py --output-dir dist
+          npm --prefix web run test:browser
+          bash deploy/smoke-isolated.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nas-${{ github.run_id }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+  publish:
+    needs: [identify, linux, harmony, server]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      && needs.identify.result == 'success' && needs.linux.result == 'success'
+      && (needs.identify.outputs.product == 'mattercamviewer'
+      || (needs.harmony.result == 'success' && needs.server.result == 'success')) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-${{ github.run_id }}
+          path: candidates/linux
+      - uses: actions/download-artifact@v7
+        if: needs.identify.outputs.product == 'matterdesk'
+        with:
+          name: harmony-${{ github.run_id }}
+          path: candidates/harmony
+      - uses: actions/download-artifact@v7
+        if: needs.identify.outputs.product == 'matterdesk'
+        with:
+          name: nas-${{ github.run_id }}
+          path: candidates/nas
+      - name: Publish one complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRODUCT: ${{ needs.identify.outputs.product }}
+          VERSION: ${{ needs.identify.outputs.version }}
+          PRERELEASE: ${{ needs.identify.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$PRODUCT" in
+            matterdesk) title=MatterDesk ;;
+            mattercamviewer) title=MatterCamViewer ;;
+            *) exit 1 ;;
+          esac
+          linux_dir=candidates/linux/dist
+          linux_image="$title-$VERSION-x86_64.AppImage"
+          (cd "$linux_dir" && sha256sum --strict -c "$linux_image.sha256")
+          assets=("$linux_dir/$linux_image" "$linux_dir/$linux_image.sha256")
+          notes="$linux_dir/$title-$VERSION-release-notes.md"
+          release_args=()
+          latest=false
+          if [[ "$PRERELEASE" == true ]]; then release_args+=(--prerelease)
+          elif [[ "$PRODUCT" == matterdesk ]]; then latest=true
+          fi
+          if [[ "$PRODUCT" == matterdesk ]]; then
+            hap="MatterDesk-$VERSION-harmony.hap"
+            nas="MatterServer-$VERSION-nas.zip"
+            (cd candidates/harmony && sha256sum --strict -c "$hap.sha256")
+            (cd candidates/nas && sha256sum --strict -c "$nas.sha256")
+            assets+=("candidates/harmony/$hap" "candidates/harmony/$hap.sha256")
+            assets+=("candidates/nas/$nas" "candidates/nas/$nas.sha256")
+            printf '\n同一版本还提供已签名 HarmonyOS HAP 和 MatterServer / Web 的 NAS Compose 部署包。\n' >> "$notes"
+          fi
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --verify-tag \
+            --title "$title $VERSION" --notes-file "$notes" --latest="$latest" "${release_args[@]}"

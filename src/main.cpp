@@ -25,9 +25,7 @@ int main(int argc, char **argv) {
     parser.process(app);
     MainWindow window; window.show();
     if (parser.isSet("demo")) window.startDemo();
-    else if (parser.isSet("server")) {
-        window.setServerUrl(parser.value("server")); window.client()->connectToServer(QUrl(parser.value("server")));
-    }
+    else if (parser.isSet("server")) window.connectToController(parser.value("server"));
     if (parser.isSet("screenshot")) {
         const QString path = parser.value("screenshot");
         QTimer::singleShot(1200, &window, [&window, path] { if (!window.grab().save(path)) std::fprintf(stderr, "Cannot save screenshot\n"); });
