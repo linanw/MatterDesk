@@ -77,17 +77,27 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const profile = await mkdtemp(join(tmpdir(), "matterdesk-web-fixture-"));
 const chrome = spawn(process.env.MATTERDESK_CHROME || "google-chrome", ["--headless=new","--disable-dev-shm-usage",
   "--disable-background-networking","--disable-component-update","--no-first-run","--no-default-browser-check","--remote-debugging-port=0",
-  "--user-data-dir="+profile, "about:blank"], { stdio: ["ignore","ignore","pipe"] });
-let util, failure, stderr = "";
+  "--enable-logging=stderr","--user-data-dir="+profile, "about:blank"], { stdio: ["ignore","ignore","pipe"] });
+let failure, target, stderr = "";
 chrome.on("error", e => failure = e);
-chrome.stderr.on("data", chunk => { stderr += chunk; const match = stderr.match(/DevTools listening on ws:\/\/(127\.0\.0\.1:\d+)/); if (match) util = "http://"+match[1]; });
+chrome.on("exit", (code, signal) => { failure = Error(`Chromium exited before the fixture completed (${signal || `code ${code}`})`); });
+chrome.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-3500); });
 let browser;
 const transport = []; let debug;
 try {
-  await wait(() => util || failure, "Chromium/CDP startup", 12000);
-  if (failure) throw failure;
-  const targets = await (await fetch(util+"/json/list")).json();
-  browser = new WebSocket(targets.find(t => t.type === "page").webSocketDebuggerUrl);
+  // With a fresh profile and port 0 Chromium writes the selected port here.
+  // Some hosted Chrome builds suppress the DevTools stderr announcement.
+  const activePort = join(profile, "DevToolsActivePort");
+  await wait(async () => {
+    if (failure) throw failure;
+    const port = Number((await readFile(activePort, "utf8").catch(() => "")).split("\n")[0]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    const list = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1000) })
+      .then(response => response.json()).catch(() => []);
+    target = Array.isArray(list) && list.find(item => item.type === "page" && typeof item.webSocketDebuggerUrl === "string");
+    return Boolean(target);
+  }, "Chromium/CDP startup", 30000);
+  browser = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { browser.onopen = resolve; browser.onerror = reject; });
   let id = 0; const pending = new Map(); const exceptions = [];
   browser.onmessage = event => {
@@ -162,6 +172,7 @@ try {
   server.closeAllConnections();
   await serverClosed;
   chrome.kill("SIGTERM");
-  if (chrome.exitCode === null) await Promise.race([new Promise(resolve => chrome.once("exit", resolve)), sleep(2200)]);
+  if (chrome.pid && chrome.exitCode === null && chrome.signalCode === null)
+    await Promise.race([new Promise(resolve => chrome.once("exit", resolve)), sleep(2200)]);
   await rm(profile, { recursive: true, force: true, maxRetries: 6, retryDelay: 150 });
 }
