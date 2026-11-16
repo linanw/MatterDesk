@@ -45,9 +45,9 @@ int main(int argc, char **argv) {
     parser.addOption({"screenshot", "保存界面 PNG（用于验证）", "file"});
     parser.addOption({"screenshot-delay", "截图前等待毫秒数", "milliseconds", "2000"});
     parser.addOption({"quit-after", "指定毫秒后退出（用于验证）", "milliseconds"}); parser.process(app);
-    const QUrl url(parser.value("server"));
-    if (!url.isValid() || (url.scheme() != "ws" && url.scheme() != "wss") || url.host().isEmpty() || !url.userInfo().isEmpty()) {
-        std::fprintf(stderr, "Invalid Matter controller WebSocket URL.\n"); return 2;
+    const auto url = MatterClient::controllerUrl(parser.value("server"));
+    if (url.isEmpty()) {
+        std::fprintf(stderr, "Invalid HTTPS or WebSocket controller URL.\n"); return 2;
     }
     bool screenshotDelayValid = false;
     const int screenshotDelay = parser.value("screenshot-delay").toInt(&screenshotDelayValid);
@@ -60,7 +60,9 @@ int main(int argc, char **argv) {
     const QSettings legacy(QStringLiteral("MatterDesk"), QStringLiteral("MatterDeskMini"));
     for (const auto &key : {QStringLiteral("mini/selectedCameraKey"), QStringLiteral("mini/alwaysOnTop")})
         if (!settings.contains(key) && legacy.contains(key)) settings.setValue(key, legacy.value(key));
-    MiniWindow window(url); window.show();
+    auto login = askControllerLogin(url);
+    if (!login) return 0;
+    MiniWindow window(url, nullptr, std::move(*login)); login.reset(); window.show();
     if (parser.isSet("screenshot")) {
         const QString path = parser.value("screenshot");
         QTimer::singleShot(screenshotDelay, &window, [&window, path] {

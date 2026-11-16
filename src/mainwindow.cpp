@@ -6,6 +6,7 @@
 #include "camerawindow.h"
 #include "camerasnapshots.h"
 #include "camerametadata.h"
+#include "controllerlogin.h"
 #include "tuyametadata.h"
 #include "tuyametadatapanel.h"
 #include <QApplication>
@@ -161,8 +162,12 @@ void MainWindow::buildUi() {
     m_mode = label("演示家庭 · 所有设备均为模拟数据", "demoBanner"); body->addWidget(m_mode);
     m_connection = new QFrame; m_connection->setObjectName("connectionPanel"); auto *conn = new QVBoxLayout(m_connection); conn->setContentsMargins(15,12,15,12);
     auto *connRow = new QHBoxLayout; m_status = label("○ 未连接", "connectionStatus"); connRow->addWidget(m_status);
-    m_url = new QLineEdit; m_url->setObjectName("serverUrl"); m_url->setAccessibleName("Matter Server 地址"); m_url->setPlaceholderText("ws://127.0.0.1:5580/ws"); connRow->addWidget(m_url,1);
-    m_connect = button("连接", "connectButton"); connRow->addWidget(m_connect); conn->addLayout(connRow);
+    m_url = new QLineEdit; m_url->setObjectName("serverUrl"); m_url->setAccessibleName("Matter Server 地址"); m_url->setPlaceholderText("https://matter.linanw.me 或 ws://127.0.0.1:5580/ws"); connRow->addWidget(m_url,1);
+    m_connect = button("连接", "connectButton"); connRow->addWidget(m_connect);
+    auto *nas = button("连接 NAS", "secondary"); connRow->addWidget(nas); conn->addLayout(connRow);
+    connect(nas, &QPushButton::clicked, this, [this] {
+        connectToController(QSettings().value("nasServerUrl", "https://matter.linanw.me").toString());
+    });
     m_serverNote = label("", "muted"); m_serverNote->setWordWrap(true); conn->addWidget(m_serverNote); body->addWidget(m_connection);
     connect(m_connect, &QPushButton::clicked, this, &MainWindow::connectServer); connect(m_url, &QLineEdit::returnPressed, this, &MainWindow::connectServer);
     m_notice = label("", "notice"); m_notice->setWordWrap(true); m_notice->hide(); body->addWidget(m_notice);
@@ -194,9 +199,22 @@ void MainWindow::setServerUrl(const QString &url) { m_url->setText(url); }
 void MainWindow::startDemo() { m_notice->hide(); m_client.setHomeDemoMode(true); }
 void MainWindow::connectServer() {
     if ((m_client.isConnected() || m_client.isConnecting()) && !m_client.isDemoMode()) { m_client.disconnectFromServer(); return; }
-    const QUrl url(m_url->text().trimmed());
-    if (!url.isValid() || (url.scheme() != "ws" && url.scheme() != "wss") || url.host().isEmpty() || !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment()) { notify("请输入有效的 ws:// 或 wss:// Matter Server 地址（不含用户名密码）。",true); return; }
-    QSettings settings; settings.setValue("serverUrl",url.toString()); m_notice->hide(); m_client.connectToServer(url);
+    connectToController(m_url->text());
+}
+void MainWindow::connectToController(const QString &address) {
+    const auto url = MatterClient::controllerUrl(address);
+    if (url.isEmpty()) { notify("请输入有效的 HTTPS、ws:// 或 wss:// MatterServer 地址（不含用户名密码）。",true); return; }
+    const auto login = askControllerLogin(url, this);
+    if (!login) return;
+    m_url->setText(url.toDisplayString());
+    // Local auto-launch must not overwrite the remembered remote URL.
+    if (url != QUrl(QStringLiteral("ws://127.0.0.1:5580/ws"))) {
+        QSettings settings;
+        settings.setValue("serverUrl", url.toString());
+        if (url.scheme() == "wss") settings.setValue("nasServerUrl", url.toString());
+    }
+    m_notice->hide();
+    m_client.connectToServer(url, login->username, login->password);
 }
 void MainWindow::syncConnection() {
     const bool demo=m_client.isDemoMode(), ready=m_client.isConnected();

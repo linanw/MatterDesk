@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>MatterDesk · 家庭</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./camera/player.js" defer></script>
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">⌂</span><div>MatterDesk<small>家庭控制台</small></div></div>
+      <nav aria-label="家庭视图">
+        <button type="button" class="nav" data-view="home" aria-pressed="true"><span aria-hidden="true">⌂</span> 家庭总览</button>
+        <button type="button" class="nav" data-view="favorites" aria-pressed="false"><span aria-hidden="true">☆</span> 收藏</button>
+        <button type="button" class="nav" data-view="cameras" aria-pressed="false"><span aria-hidden="true">◉</span> 摄像头</button>
+      </nav>
+      <div class="rooms"><div class="room-title"><span>我的房间</span><button class="small-button" type="button" id="room-add" aria-label="添加房间">＋</button></div><nav id="rooms" aria-label="房间"></nav></div>
+      <div class="sidebar-foot"><span class="dot" aria-hidden="true"></span><span id="connection">正在连接…</span></div>
+    </aside>
+    <main>
+      <header class="topbar"><div><p class="eyebrow">MATTERDESK HOME</p><h1 id="page-title">家庭总览</h1><p class="muted" id="page-caption">在一个地方查看和控制家庭配件。</p></div>
+        <div class="top-actions"><button type="button" id="reload">刷新</button><button type="button" id="pair" class="primary">＋ 添加配件</button></div>
+      </header>
+      <section class="overview" aria-label="家庭状态">
+        <div><span class="stat-name">所有配件</span><strong id="total">—</strong></div>
+        <div><span class="stat-name">在线</span><strong id="online">—</strong></div>
+        <div><span class="stat-name">摄像头</span><strong id="camera-total">—</strong></div>
+      </section>
+      <section class="devices" aria-labelledby="device-heading">
+        <div class="section-heading"><h2 id="device-heading">配件</h2><span class="muted" id="match-count"></span></div>
+        <div class="filters">
+          <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索配件或桥接器" aria-label="搜索配件或桥接器"></label>
+          <label><span class="sr-only">类别</span><select id="kind"><option value="">全部类别</option></select></label>
+          <label><span class="sr-only">连接状态</span><select id="availability"><option value="">全部状态</option><option value="online">在线</option><option value="offline">离线</option></select></label>
+        </div>
+        <div id="cards" class="cards"></div>
+        <div class="empty" id="empty" hidden><h3 id="empty-title"></h3><p id="empty-note" class="muted"></p><button id="reconnect" type="button" hidden>重新连接</button></div>
+      </section>
+      <p class="footnote">房间、名称和收藏只保存在此浏览器中。配件状态来自 Matter 控制器。</p>
+    </main>
+  </div>
+  <dialog id="details" class="dialog">
+    <div class="dialog-heading"><div><p id="details-kind" class="eyebrow">配件设置</p><h2 id="device-name"></h2><p id="device-meta" class="muted"></p></div><button type="button" class="close" id="detail-close" aria-label="关闭配件详情">×</button></div>
+    <div class="detail-content">
+      <section id="camera-panel" hidden>
+        <div class="media"><img id="camera-image" alt="摄像头 JPEG 快照" hidden><video id="video" muted playsinline hidden></video><div id="camera-placeholder" role="status"></div></div>
+        <p class="muted" id="camera-note" aria-live="polite"></p>
+        <div id="camera-buttons" class="action-row">
+          <button type="button" id="camera-play" class="primary">开始直播</button><button type="button" id="camera-refresh">刷新快照</button>
+          <button type="button" id="camera-stop" hidden>返回快照</button><button type="button" id="camera-sound" aria-pressed="false" hidden>打开声音</button><button type="button" id="camera-talk" aria-pressed="false" hidden>开启对讲</button>
+        </div>
+      </section>
+      <div id="readings" class="readings"></div>
+      <section id="detail-controls"><h3>配件控制</h3><p class="muted">“当前”值由设备回报。改变目标后选择应用。</p><div id="controls"></div></section>
+      <form id="metadata" class="form-panel"><h3>家庭设置</h3><label>显示名称<input id="override-name" maxlength="80" placeholder="保留配件原名称"></label><label>分配房间<select id="device-room"></select></label><label class="checkbox"><input type="checkbox" id="device-favorite">加入收藏</label><button type="submit">保存家庭设置</button></form>
+      <p id="detail-feedback" class="feedback" role="status"></p>
+    </div>
+  </dialog>
+  <dialog id="pair-dialog" class="dialog narrow">
+    <div class="dialog-heading"><div><p class="eyebrow">MATTER 配对</p><h2>添加配件</h2></div><button type="button" class="close" data-close="pair-dialog" aria-label="关闭配对">×</button></div>
+    <form id="pair-form" class="form-panel"><p class="muted">请让配件进入配对模式。可输入 11 位、21 位 Matter 配对码，或 MT: 开头的二维码文本。配对码不会保存。</p><label>Matter 配对码<input id="pair-code" required minlength="6" maxlength="1024" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label><p class="feedback" id="pair-feedback" role="status"></p><button class="primary" type="submit" id="pair-submit">配对</button></form>
+  </dialog>
+  <dialog id="room-dialog" class="dialog narrow">
+    <div class="dialog-heading"><div><p class="eyebrow">家庭设置</p><h2 id="room-heading">添加房间</h2></div><button type="button" class="close" data-close="room-dialog" aria-label="关闭房间设置">×</button></div>
+    <form class="form-panel" id="room-form"><label>房间名称<input id="room-name" maxlength="80" placeholder="例如：客厅" required></label><p id="room-feedback" role="status" class="feedback"></p><div class="action-row"><button type="submit" class="primary">保存房间</button><button type="button" id="room-delete" hidden>移除房间</button></div></form>
+  </dialog>
+  <div id="notice" class="notice" role="status" hidden></div>
+</body>
+</html>

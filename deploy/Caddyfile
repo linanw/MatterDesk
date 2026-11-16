@@ -1,0 +1,43 @@
+{
+	admin off
+	persist_config off
+}
+
+{$MATTERDESK_SITE_ADDRESS:http://:18081} {
+	bind {$MATTERDESK_BIND_ADDRESS:127.0.0.1}
+
+	route {
+		header {
+			Cache-Control "no-store"
+			Referrer-Policy "no-referrer"
+			X-Content-Type-Options "nosniff"
+			X-Frame-Options "DENY"
+			-Server
+		}
+
+		# Browser Basic credentials are ambient. Deny cross-site WebSocket upgrades
+		# even with valid credentials. Native clients may omit Origin altogether.
+		@foreignOrigin {
+			path /ws
+			header Origin *
+			not header Origin {$MATTERDESK_PUBLIC_ORIGIN:https://matter.linanw.me}
+		}
+		respond @foreignOrigin 403
+
+		basic_auth bcrypt MatterDesk {
+			import /run/secrets/matterdesk-users
+		}
+
+		handle /ws {
+			reverse_proxy {$MATTERDESK_UPSTREAM:127.0.0.1:5580} {
+				header_up -Authorization
+				header_up -Cookie
+			}
+		}
+
+		handle {
+			root * /srv/matterdesk
+			file_server
+		}
+	}
+}

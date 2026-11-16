@@ -2,7 +2,15 @@
 #include "matterdevice.h"
 
 #include <QJsonDocument>
+#include <QFile>
+#include <QNetworkRequest>
+#include <QProcess>
 #include <QSignalSpy>
+#include <QSslConfiguration>
+#include <QSslKey>
+#include <QSslSocket>
+#include <QTcpServer>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QWebSocket>
 #include <QWebSocketServer>
@@ -14,14 +22,17 @@ QString encode(QJsonObject object) {
 }
 class FakeServer : public QObject {
 public:
-    QWebSocketServer server{QStringLiteral("MatterDesk protocol test"), QWebSocketServer::NonSecureMode};
+    QWebSocketServer server;
     QWebSocket *peer = nullptr;
     QList<QJsonObject> requests;
     QJsonArray nodes = demoNodes();
     bool greeting = true;
     QJsonObject info{{"schema_version", 14}, {"min_supported_schema_version", 11}, {"sdk_version", "test"}};
     std::function<void(const QJsonObject &)> handler;
-    FakeServer() {
+    explicit FakeServer(const QSslConfiguration &tls = {})
+        : server(QStringLiteral("MatterDesk protocol test"),
+                 tls.isNull() ? QWebSocketServer::NonSecureMode : QWebSocketServer::SecureMode) {
+        if (!tls.isNull()) server.setSslConfiguration(tls);
         server.listen(QHostAddress::LocalHost, 0);
         connect(&server, &QWebSocketServer::newConnection, this, [this] {
             peer = server.nextPendingConnection();
@@ -37,11 +48,36 @@ public:
             if (greeting) send(info);
         });
     }
-    QUrl url() const { return QUrl(QStringLiteral("ws://127.0.0.1:%1/ws").arg(server.serverPort())); }
+    QUrl url() const { return QUrl(QStringLiteral("%1://127.0.0.1:%2/ws")
+        .arg(server.secureMode() == QWebSocketServer::SecureMode ? "wss" : "ws").arg(server.serverPort())); }
     void send(QJsonObject message) { if (peer) peer->sendTextMessage(encode(message)); }
     void reply(QJsonObject request, QJsonValue result) {
         send({{"message_id", request.value("message_id")}, {"result", result}});
     }
+};
+class DeniedServer : public QTcpServer {
+public:
+    explicit DeniedServer(const QSslConfiguration &tls) : m_tls(tls) { listen(QHostAddress::LocalHost, 0); }
+    int requests = 0;
+protected:
+    void incomingConnection(qintptr descriptor) override {
+        auto *socket = new QSslSocket(this);
+        if (!socket->setSocketDescriptor(descriptor)) { socket->deleteLater(); return; }
+        socket->setSslConfiguration(m_tls);
+        connect(socket, &QSslSocket::disconnected, socket, &QObject::deleteLater);
+        connect(socket, &QSslSocket::readyRead, this, [this, socket, request = QByteArray{}]() mutable {
+            request += socket->readAll();
+            if (!request.contains("\r\n\r\n")) return;
+            ++requests;
+            socket->write("HTTP/1.1 401 Reflected fixture:password\r\n"
+                          "WWW-Authenticate: Basic realm=\"MatterDesk\"\r\n"
+                          "Content-Length: 0\r\nConnection: close\r\n\r\n");
+            socket->disconnectFromHost();
+        });
+        socket->startServerEncryption();
+    }
+private:
+    QSslConfiguration m_tls;
 };
 QJsonArray alteredDemo(const std::function<void(QJsonObject &)> &alter) {
     auto node = demoNodes().first().toObject();
@@ -118,6 +154,81 @@ private slots:
         QTRY_VERIFY(client.isConnected());
         QCOMPARE(server.requests.first().value("command").toString(), QStringLiteral("start_listening"));
         QCOMPARE(client.devices().size(), 6);
+    }
+    void controllerUrlRejectsSecretsAndPlainHttp() {
+        QCOMPARE(MatterClient::controllerUrl("https://matter.example:8443/"), QUrl("wss://matter.example:8443/ws"));
+        QCOMPARE(MatterClient::controllerUrl("ws://127.0.0.1:5580/ws"), QUrl("ws://127.0.0.1:5580/ws"));
+        for (const auto *bad : {"http://matter.example", "https://u:p@matter.example",
+                 "wss://@matter.example/ws", "wss://matter.example/ws?password=test",
+                 "https://matter.example/#url", "https://matter.example/admin"})
+            QVERIFY2(MatterClient::controllerUrl(bad).isEmpty(), bad);
+        FakeServer server;
+        MatterClient client;
+        QSignalSpy errors(&client, &MatterClient::errorOccurred);
+        client.connectToServer(server.url(), "fixture", "fixture password");
+        QCOMPARE(errors.size(), 1);
+        QVERIFY(!client.isConnecting());
+        QVERIFY(server.peer == nullptr);
+    }
+    void wssAuthenticatesWithTrustedTlsAndClearsOnSwitch() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const auto certPath = temp.filePath("fixture.pem");
+        const auto keyPath = temp.filePath("fixture.key");
+        QProcess openssl;
+        openssl.start("openssl", {"req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes",
+            "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1",
+            "-keyout", keyPath, "-out", certPath});
+        QVERIFY2(openssl.waitForFinished(10000) && openssl.exitCode() == 0, "Cannot generate temporary TLS fixture");
+        const auto certs = QSslCertificate::fromPath(certPath);
+        QCOMPARE(certs.size(), 1);
+        QFile pem(keyPath);
+        QVERIFY(pem.open(QIODevice::ReadOnly));
+        const QSslKey key(&pem, QSsl::Rsa);
+        QVERIFY(!key.isNull());
+        const auto original = QSslConfiguration::defaultConfiguration();
+        auto tls = original;
+        tls.setLocalCertificate(certs.first());
+        tls.setPrivateKey(key);
+        FakeServer secure(tls);
+        QVERIFY(secure.server.isListening());
+        MatterClient client;
+        QSignalSpy errors(&client, &MatterClient::errorOccurred);
+        client.connectToServer(secure.url(), "fixture", "fixture:password");
+        QTRY_VERIFY_WITH_TIMEOUT(!errors.isEmpty(), 5000);
+        QVERIFY(!secure.peer);
+        QVERIFY(!client.isConnected());
+        client.disconnectFromServer();
+
+        struct RestoreTls {
+            QSslConfiguration previous;
+            ~RestoreTls() { QSslConfiguration::setDefaultConfiguration(previous); }
+        } restore{original};
+        auto trusted = original;
+        trusted.addCaCertificate(certs.first());
+        QSslConfiguration::setDefaultConfiguration(trusted);
+        DeniedServer denied(tls);
+        QVERIFY(denied.isListening());
+        errors.clear();
+        client.connectToServer(QUrl(QStringLiteral("wss://127.0.0.1:%1/ws").arg(denied.serverPort())),
+                               "fixture", "fixture:password");
+        QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 1, 5000);
+        QCOMPARE(denied.requests, 1);
+        QVERIFY(errors.first().at(0).toString().contains(QStringLiteral("NAS 拒绝连接")));
+        QVERIFY(!errors.first().at(0).toString().contains("fixture:password"));
+        QVERIFY(!client.isConnecting());
+
+        client.connectToServer(secure.url(), "fixture", "fixture:password");
+        QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 5000);
+        QVERIFY(secure.peer);
+        QCOMPARE(secure.peer->request().rawHeader("Authorization"), QByteArray("Basic Zml4dHVyZTpmaXh0dXJlOnBhc3N3b3Jk"));
+        QVERIFY(client.serverUrl().userInfo().isEmpty());
+
+        FakeServer local;
+        client.connectToServer(local.url());
+        QTRY_VERIFY(client.isConnected());
+        QVERIFY(local.peer);
+        QVERIFY(!local.peer->request().hasRawHeader("Authorization"));
     }
     void incompatibleGreetingStopsConnection() {
         FakeServer server;

@@ -1,0 +1,9 @@
+# Optional standalone Linux override: Caddy acquires the public certificate itself.
+# Do not use this when DSM/nginx already owns TCP 80/443.
+version: '3.8'
+
+services:
+  gateway:
+    environment:
+      MATTERDESK_SITE_ADDRESS: ${MATTERDESK_PUBLIC_HOST:-matter.linanw.me}
+      MATTERDESK_BIND_ADDRESS: '[::]'

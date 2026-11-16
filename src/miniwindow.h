@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matterclient.h"
+#include "controllerlogin.h"
 #include <QMainWindow>
 #include <QPointer>
 #include <QRect>
@@ -23,7 +24,8 @@ class QScreen;
 class MiniWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MiniWindow(QUrl controller = QUrl(QStringLiteral("ws://127.0.0.1:5580/ws")), QWidget *parent = nullptr);
+    explicit MiniWindow(QUrl controller = QUrl(QStringLiteral("ws://127.0.0.1:5580/ws")), QWidget *parent = nullptr,
+                        ControllerLogin login = {});
     ~MiniWindow() override;
     MatterClient *client() { return &m_client; }
     QWidget *drawerHandle() const { return m_drawerHandle; }
@@ -63,7 +65,6 @@ private:
     MatterDevice selectedCamera() const;
 
     MatterClient m_client;
-    QUrl m_controller;
     CameraSnapshots *m_snapshots = nullptr;
     CameraPtzControls *m_ptz = nullptr;
     QPointer<CameraWindow> m_camera;

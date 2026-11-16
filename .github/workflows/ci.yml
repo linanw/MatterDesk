@@ -37,7 +37,7 @@ jobs:
             build-essential cmake ninja-build \
             qt6-base-dev qt6-websockets-dev qt6-webengine-dev qt6-webchannel-dev \
             libudev-dev libbluetooth-dev fonts-noto-cjk fonts-noto-core fonts-dejavu-core apparmor \
-            fcitx5-frontend-qt6 fcitx5 fcitx5-pinyin dbus dbus-x11 xvfb xauth libxtst6 openbox
+            fcitx5-frontend-qt6 fcitx5 fcitx5-pinyin dbus dbus-x11 xvfb xauth libxtst6 openbox openssl
       - name: Install pinned controller dependencies
         run: ./scripts/setup-controller.sh
       - name: Configure both applications
@@ -96,3 +96,24 @@ jobs:
           if [ '${{ steps.windowgeometry.outcome }}' = failure ]; then
             python3 .github/scripts/test-failure-summary.py "$RUNNER_TEMP/matterdesk-windowgeometry.log"
           fi
+  server-web:
+    name: Web and isolated NAS deployment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Test Web protocol and build the NAS archive
+        run: |
+          npm --prefix web test
+          python3 scripts/package-nas.py --output-dir "$RUNNER_TEMP/matterdesk-nas"
+          (cd "$RUNNER_TEMP/matterdesk-nas" && sha256sum --strict -c ./*.zip.sha256)
+      - name: Verify desktop and mobile flows in Chromium
+        run: npm --prefix web run test:browser
+      - name: Validate isolated controller, Fabric volume and authenticated gateway
+        run: bash deploy/smoke-isolated.sh

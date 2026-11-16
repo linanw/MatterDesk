@@ -16,7 +16,8 @@ class MatterClient : public QObject {
     Q_OBJECT
 public:
     explicit MatterClient(QObject *parent = nullptr);
-    void connectToServer(QUrl url);
+    static QUrl controllerUrl(const QString &address);
+    void connectToServer(QUrl url, const QString &username = {}, const QString &password = {});
     void disconnectFromServer();
     void setDemoMode(bool enabled);
     void setHomeDemoMode(bool enabled);
@@ -72,6 +73,7 @@ private:
     };
     void enterDemo(bool enabled, const QJsonArray &nodes);
     void openSocket();
+    void beginConnection(QUrl url, QByteArray authorization);
     void destroySocket();
     void receive(const QString &message);
     void handleEvent(const QJsonObject &message);
@@ -102,6 +104,7 @@ private:
     QTimer m_ping;
     QTimer m_pongDeadline;
     QUrl m_url;
+    QByteArray m_authorization;
     QJsonArray m_nodes;
     QJsonObject m_info;
     QHash<QString, Pending> m_pending;

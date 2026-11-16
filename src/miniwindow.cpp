@@ -69,8 +69,8 @@ QString relativeTime(const QDateTime &capturedAt) {
 }
 }
 
-MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
-    : QMainWindow(parent), m_controller(std::move(controller)) {
+MiniWindow::MiniWindow(QUrl controller, QWidget *parent, ControllerLogin login)
+    : QMainWindow(parent) {
     setObjectName(QStringLiteral("miniWindow"));
     setWindowFlag(Qt::FramelessWindowHint);
     m_alwaysOnTop = QSettings().value(QStringLiteral("mini/alwaysOnTop"), false).toBool();
@@ -273,7 +273,9 @@ MiniWindow::MiniWindow(QUrl controller, QWidget *parent)
         if (m_snapshots && !m_selectedKey.isEmpty()) m_snapshots->refresh(m_selectedKey);
     });
     // The client owns reconnect backoff; opening the window never prompts for an address.
-    QTimer::singleShot(0, this, [this] { if (!m_destroying) m_client.connectToServer(m_controller); });
+    QTimer::singleShot(0, this, [this, controller = std::move(controller), login = std::move(login)] {
+        if (!m_destroying) m_client.connectToServer(controller, login.username, login.password);
+    });
 }
 
 MiniWindow::~MiniWindow() {
